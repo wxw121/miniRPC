@@ -1,0 +1,2 @@
+com.minirpc.common.serialize.Hessian2Serializer
+com.minirpc.common.serialize.ProtostuffSerializer

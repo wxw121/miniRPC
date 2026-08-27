@@ -1,0 +1,29 @@
+package com.minirpc.core.cluster;
+
+import com.minirpc.common.protocol.RpcRequest;
+import com.minirpc.common.protocol.RpcResponse;
+
+import java.util.function.Supplier;
+
+/**
+ * 容错策略 SPI 接口
+ * <p>
+ * 定义 RPC 调用失败时的容错处理策略。
+ * 内置 Failover（失败重试）、Failfast（快速失败）、Failback（延迟恢复）三种策略。
+ * <p>
+ * 面试考点：
+ * - 分布式系统容错模式对比
+ * - 策略模式 + SPI 扩展
+ * - 重试风暴问题与指数退避
+ */
+public interface ClusterStrategy {
+
+    /**
+     * 执行 RPC 调用（带容错策略）
+     *
+     * @param request  RPC 请求
+     * @param invoker  实际调用逻辑（Supplier 封装）
+     * @return RPC 响应
+     */
+    RpcResponse invoke(RpcRequest request, Supplier<RpcResponse> invoker);
+}

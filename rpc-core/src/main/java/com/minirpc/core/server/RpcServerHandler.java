@@ -1,0 +1,181 @@
+package com.minirpc.core.server;
+
+import com.minirpc.common.exception.RpcException;
+import com.minirpc.common.protocol.MessageType;
+import com.minirpc.common.protocol.RpcErrorCode;
+import com.minirpc.common.protocol.RpcMessage;
+import com.minirpc.common.protocol.RpcRequest;
+import com.minirpc.common.protocol.RpcResponse;
+import com.minirpc.core.registry.LocalServiceRegistry;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.timeout.IdleState;
+import io.netty.handler.timeout.IdleStateEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+
+/**
+ * RPC 服务端请求处理器
+ * <p>
+ * 处理客户端发来的 RPC 请求：
+ * 1. 从本地服务注册表中查找服务实现
+ * 2. 将业务逻辑提交到独立业务线程池执行（避免阻塞 Netty IO 线程）
+ * 3. 通过反射调用目标方法
+ * 4. 将结果封装为 RpcResponse 返回
+ * <p>
+ * 面试考点：
+ * - 为什么不能在 Netty IO 线程执行业务逻辑？（阻塞 Worker 线程导致所有连接卡死）
+ * - IO 线程与业务线程分离（Reactor 模型的最佳实践）
+ * - Dubbo 的线程模型：IO 线程只负责编解码，业务线程池负责反射调用
+ */
+public class RpcServerHandler extends SimpleChannelInboundHandler<RpcMessage> {
+
+    private static final Logger log = LoggerFactory.getLogger(RpcServerHandler.class);
+
+    /**
+     * Method 缓存：避免每次请求都执行反射 getMethod()
+     * key = 实现类名 + 方法名 + 参数类型列表，value = 解析后的 Method 对象
+     */
+    private static final Map<String, Method> METHOD_CACHE = new ConcurrentHashMap<>();
+
+    /**
+     * 业务线程池：将耗时的反射调用从 Netty IO 线程剥离
+     */
+    private final ExecutorService businessExecutor;
+
+    /**
+     * 优雅停机管理器：追踪 in-flight 请求，停机时拒绝新请求
+     */
+    private final GracefulShutdownManager shutdownManager;
+
+    public RpcServerHandler(ExecutorService businessExecutor, GracefulShutdownManager shutdownManager) {
+        this.businessExecutor = businessExecutor;
+        this.shutdownManager = shutdownManager;
+    }
+
+    @Override
+    protected void channelRead0(ChannelHandlerContext ctx, RpcMessage msg) {
+        // 处理心跳消息（心跳在 IO 线程直接处理，无需提交到业务线程池）
+        if (msg.getMessageType() == MessageType.HEARTBEAT) {
+            log.debug("Received heartbeat from: {}", ctx.channel().remoteAddress());
+            return;
+        }
+
+        if (msg.getMessageType() != MessageType.REQUEST) {
+            log.warn("Received non-request message: {}", msg.getMessageType());
+            return;
+        }
+
+        RpcRequest request = (RpcRequest) msg.getData();
+        log.debug("Received RPC request: {}", request);
+
+        if (request.getContext() != null && request.getContext().isExpired(System.currentTimeMillis())) {
+            RpcResponse expired = RpcResponse.fail(request.getRequestId(), RpcErrorCode.DEADLINE_EXCEEDED,
+                    "RPC deadline exceeded before server execution");
+            ctx.writeAndFlush(new RpcMessage(MessageType.RESPONSE, msg.getSerializerType(), expired));
+            return;
+        }
+
+        // 优雅停机：拒绝新请求
+        if (!shutdownManager.acquireRequest()) {
+            log.warn("Rejecting request during shutdown: requestId={}", request.getRequestId());
+            RpcResponse rejectResponse = RpcResponse.fail(
+                    request.getRequestId(), RpcErrorCode.UNAVAILABLE,
+                    "Server is shutting down, please retry on another node");
+            RpcMessage rejectMessage = new RpcMessage(MessageType.RESPONSE, msg.getSerializerType(), rejectResponse);
+            ctx.writeAndFlush(rejectMessage);
+            return;
+        }
+
+        // 将业务逻辑提交到独立线程池，避免阻塞 Netty IO 线程
+        try {
+            businessExecutor.submit(() -> {
+            RpcResponse response;
+            try {
+                if (request.getContext() != null && request.getContext().isExpired(System.currentTimeMillis())) {
+                    response = RpcResponse.fail(request.getRequestId(), RpcErrorCode.DEADLINE_EXCEEDED,
+                            "RPC deadline exceeded before business execution");
+                    returnResponse(ctx, msg, response);
+                    return;
+                }
+                // 1. 从注册表获取服务实现
+                Object service = LocalServiceRegistry.getService(request.getInterfaceName());
+                if (service == null) {
+                    throw new RpcException(RpcErrorCode.UNAVAILABLE,
+                            "Service not found: " + request.getInterfaceName());
+                }
+
+                // 2. 解析参数类型并反射调用目标方法（使用 Method 缓存提升性能）
+                Class<?>[] paramTypes = request.getParameterTypes();
+                String methodKey = service.getClass().getName() + "#" + request.getMethodName()
+                        + "#" + Arrays.toString(paramTypes);
+                Method method = METHOD_CACHE.computeIfAbsent(methodKey, k -> {
+                    try {
+                        return service.getClass().getMethod(request.getMethodName(), paramTypes);
+                    } catch (NoSuchMethodException e) {
+                        throw new RuntimeException("Method not found: " + request.getMethodName(), e);
+                    }
+                });
+                Object result = method.invoke(service, request.getParameters());
+
+                // 3. 构建成功响应
+                response = RpcResponse.success(request.getRequestId(), result);
+                log.info("RPC request processed successfully: requestId={}", request.getRequestId());
+
+            } catch (Exception e) {
+                log.error("RPC request processing failed: requestId={}", request.getRequestId(), e);
+                RpcErrorCode errorCode = e instanceof RpcException rpcException
+                        ? rpcException.getErrorCode() : RpcErrorCode.INTERNAL;
+                response = RpcResponse.fail(request.getRequestId(), errorCode, e.getMessage());
+            } finally {
+                // 无论成功失败，释放 in-flight 计数
+                shutdownManager.releaseRequest();
+            }
+
+            // 4. 发送响应（检查 Channel 是否仍活跃，避免客户端已断开时写入报错）
+            returnResponse(ctx, msg, response);
+            });
+        } catch (RejectedExecutionException e) {
+            shutdownManager.releaseRequest();
+            RpcResponse overload = RpcResponse.fail(request.getRequestId(), RpcErrorCode.OVERLOADED,
+                    "Server is overloaded or shutting down");
+            ctx.writeAndFlush(new RpcMessage(MessageType.RESPONSE, msg.getSerializerType(), overload));
+        }
+    }
+
+    private void returnResponse(ChannelHandlerContext ctx, RpcMessage requestMessage, RpcResponse response) {
+        if (ctx.channel().isActive()) {
+            RpcMessage responseMessage = new RpcMessage(MessageType.RESPONSE,
+                    requestMessage.getSerializerType(), response);
+            ctx.writeAndFlush(responseMessage);
+        } else {
+            log.warn("Channel already closed, discarding response for requestId={}", response.getRequestId());
+        }
+    }
+
+    @Override
+    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+        if (evt instanceof IdleStateEvent idleEvent) {
+            if (idleEvent.state() == IdleState.READER_IDLE) {
+                // 读空闲：客户端长时间未发送心跳，关闭连接
+                log.warn("Client heartbeat timeout, closing connection: {}", ctx.channel().remoteAddress());
+                ctx.close();
+            }
+        } else {
+            super.userEventTriggered(ctx, evt);
+        }
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        log.error("Server handler exception", cause);
+        ctx.close();
+    }
+}

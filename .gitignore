@@ -1,0 +1,9 @@
+# Build output
+**/target/
+
+# Local agent and editor state
+.superpowers/
+.qoder/
+
+# Interview material excluded from the public project repository
+docs/INTERVIEW.md
