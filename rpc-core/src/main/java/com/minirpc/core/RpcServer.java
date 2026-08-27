@@ -4,6 +4,8 @@ import com.minirpc.core.annotation.RpcService;
 import com.minirpc.core.registry.LocalServiceRegistry;
 import com.minirpc.core.server.NettyServer;
 import com.minirpc.core.config.RpcConfig;
+import com.minirpc.core.observability.RpcInvocationListener;
+import com.minirpc.core.security.RpcAuthenticator;
 import com.minirpc.registry.Registry;
 import com.minirpc.registry.ServiceInstance;
 import org.slf4j.Logger;
@@ -59,6 +61,14 @@ public class RpcServer {
     public RpcServer(RpcConfig config) {
         this.port = config.getPort();
         this.nettyServer = new NettyServer(config);
+    }
+
+    public void setAuthenticator(RpcAuthenticator authenticator) {
+        nettyServer.setAuthenticator(authenticator);
+    }
+
+    public void addInvocationListener(RpcInvocationListener listener) {
+        nettyServer.addInvocationListener(listener);
     }
 
     /**

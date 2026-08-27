@@ -6,7 +6,10 @@ import com.minirpc.common.protocol.RpcErrorCode;
 import com.minirpc.common.protocol.RpcMessage;
 import com.minirpc.common.protocol.RpcRequest;
 import com.minirpc.common.protocol.RpcResponse;
+import com.minirpc.core.observability.RpcInvocationEvent;
+import com.minirpc.core.observability.RpcInvocationListener;
 import com.minirpc.core.registry.LocalServiceRegistry;
+import com.minirpc.core.security.RpcAuthenticator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.timeout.IdleState;
@@ -16,6 +19,7 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -54,10 +58,21 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcMessage> {
      * 优雅停机管理器：追踪 in-flight 请求，停机时拒绝新请求
      */
     private final GracefulShutdownManager shutdownManager;
+    private final RpcAuthenticator authenticator;
+    private final List<RpcInvocationListener> invocationListeners;
 
     public RpcServerHandler(ExecutorService businessExecutor, GracefulShutdownManager shutdownManager) {
+        this(businessExecutor, shutdownManager, RpcAuthenticator.allowAll(), List.of());
+    }
+
+    public RpcServerHandler(ExecutorService businessExecutor,
+                            GracefulShutdownManager shutdownManager,
+                            RpcAuthenticator authenticator,
+                            List<RpcInvocationListener> invocationListeners) {
         this.businessExecutor = businessExecutor;
         this.shutdownManager = shutdownManager;
+        this.authenticator = authenticator == null ? RpcAuthenticator.allowAll() : authenticator;
+        this.invocationListeners = List.copyOf(invocationListeners);
     }
 
     @Override
@@ -75,11 +90,26 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcMessage> {
 
         RpcRequest request = (RpcRequest) msg.getData();
         log.debug("Received RPC request: {}", request);
+        long startedNanos = System.nanoTime();
 
         if (request.getContext() != null && request.getContext().isExpired(System.currentTimeMillis())) {
             RpcResponse expired = RpcResponse.fail(request.getRequestId(), RpcErrorCode.DEADLINE_EXCEEDED,
                     "RPC deadline exceeded before server execution");
-            ctx.writeAndFlush(new RpcMessage(MessageType.RESPONSE, msg.getSerializerType(), expired));
+            completeRequest(ctx, msg, request, expired, startedNanos);
+            return;
+        }
+
+        RpcAuthenticator.AuthenticationResult authentication;
+        try {
+            authentication = authenticator.authenticate(request);
+        } catch (RuntimeException e) {
+            log.warn("Request authentication failed: requestId={}", request.getRequestId(), e);
+            authentication = RpcAuthenticator.AuthenticationResult.deny("Authentication failed");
+        }
+        if (!authentication.authenticated()) {
+            RpcResponse unauthorized = RpcResponse.fail(request.getRequestId(), RpcErrorCode.UNAUTHORIZED,
+                    authentication.reason().isBlank() ? "Authentication failed" : authentication.reason());
+            completeRequest(ctx, msg, request, unauthorized, startedNanos);
             return;
         }
 
@@ -90,7 +120,7 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcMessage> {
                     request.getRequestId(), RpcErrorCode.UNAVAILABLE,
                     "Server is shutting down, please retry on another node");
             RpcMessage rejectMessage = new RpcMessage(MessageType.RESPONSE, msg.getSerializerType(), rejectResponse);
-            ctx.writeAndFlush(rejectMessage);
+            completeRequest(ctx, msg, request, rejectResponse, startedNanos);
             return;
         }
 
@@ -102,7 +132,7 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcMessage> {
                 if (request.getContext() != null && request.getContext().isExpired(System.currentTimeMillis())) {
                     response = RpcResponse.fail(request.getRequestId(), RpcErrorCode.DEADLINE_EXCEEDED,
                             "RPC deadline exceeded before business execution");
-                    returnResponse(ctx, msg, response);
+                    completeRequest(ctx, msg, request, response, startedNanos);
                     return;
                 }
                 // 1. 从注册表获取服务实现
@@ -140,13 +170,38 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcMessage> {
             }
 
             // 4. 发送响应（检查 Channel 是否仍活跃，避免客户端已断开时写入报错）
-            returnResponse(ctx, msg, response);
+            completeRequest(ctx, msg, request, response, startedNanos);
             });
         } catch (RejectedExecutionException e) {
             shutdownManager.releaseRequest();
             RpcResponse overload = RpcResponse.fail(request.getRequestId(), RpcErrorCode.OVERLOADED,
                     "Server is overloaded or shutting down");
-            ctx.writeAndFlush(new RpcMessage(MessageType.RESPONSE, msg.getSerializerType(), overload));
+            completeRequest(ctx, msg, request, overload, startedNanos);
+        }
+    }
+
+    private void completeRequest(ChannelHandlerContext ctx, RpcMessage requestMessage, RpcRequest request,
+                                 RpcResponse response, long startedNanos) {
+        returnResponse(ctx, requestMessage, response);
+        RpcErrorCode errorCode = response.getStatus() == RpcResponse.STATUS_FAIL ? response.getErrorCode() : null;
+        int attempt = 0;
+        if (request.getContext() != null) {
+            String value = request.getContext().getAttachments().get("retryAttempt");
+            try {
+                attempt = value == null ? 0 : Integer.parseInt(value);
+            } catch (NumberFormatException ignored) {
+                // A malformed optional attachment must not change request completion semantics.
+            }
+        }
+        RpcInvocationEvent event = new RpcInvocationEvent(
+                "server", request.getInterfaceName(), errorCode, System.nanoTime() - startedNanos, attempt,
+                String.valueOf(ctx.channel().localAddress()), Map.of());
+        for (RpcInvocationListener listener : invocationListeners) {
+            try {
+                listener.onComplete(event);
+            } catch (RuntimeException e) {
+                log.warn("RPC invocation listener failed", e);
+            }
         }
     }
 

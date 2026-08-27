@@ -3,6 +3,8 @@ package com.minirpc.core.server;
 import com.minirpc.core.codec.RpcMessageDecoder;
 import com.minirpc.core.codec.RpcMessageEncoder;
 import com.minirpc.core.config.RpcConfig;
+import com.minirpc.core.observability.RpcInvocationListener;
+import com.minirpc.core.security.RpcAuthenticator;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
@@ -16,6 +18,8 @@ import io.netty.handler.timeout.IdleStateHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
@@ -68,6 +72,8 @@ public class NettyServer {
      * - Dubbo 的做法：IO 线程只做编解码，业务逻辑提交到独立线程池
      */
     private ExecutorService businessExecutor;
+    private volatile RpcAuthenticator authenticator = RpcAuthenticator.allowAll();
+    private final List<RpcInvocationListener> invocationListeners = new CopyOnWriteArrayList<>();
 
     public NettyServer(int port) {
         this.port = port;
@@ -77,6 +83,16 @@ public class NettyServer {
     public NettyServer(RpcConfig config) {
         this.config = config;
         this.port = config.getPort();
+    }
+
+    public void setAuthenticator(RpcAuthenticator authenticator) {
+        this.authenticator = authenticator == null ? RpcAuthenticator.allowAll() : authenticator;
+    }
+
+    public void addInvocationListener(RpcInvocationListener listener) {
+        if (listener != null) {
+            invocationListeners.add(listener);
+        }
     }
 
     /**
@@ -131,7 +147,7 @@ public class NettyServer {
                                     // 自定义协议编码器
                                     .addLast(new RpcMessageEncoder())
                                     // 业务处理器（使用独立业务线程池 + 优雅停机管理器）
-                                    .addLast(new RpcServerHandler(businessExecutor, shutdownManager));
+                                    .addLast(new RpcServerHandler(businessExecutor, shutdownManager, authenticator, invocationListeners));
                         }
                     });
 
