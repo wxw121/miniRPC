@@ -19,6 +19,8 @@ import com.minirpc.core.filter.FilterChain;
 import com.minirpc.core.filter.MetricsFilter;
 import com.minirpc.core.filter.TraceFilter;
 import com.minirpc.core.loadbalance.LoadBalancer;
+import com.minirpc.core.observability.RpcInvocationEvent;
+import com.minirpc.core.observability.RpcInvocationListener;
 import com.minirpc.registry.ServiceDiscovery;
 import com.minirpc.registry.ServiceInstance;
 import org.slf4j.Logger;
@@ -30,6 +32,7 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -73,6 +76,7 @@ public class RpcClientProxy implements InvocationHandler {
     private final TokenBucketRateLimiter rateLimiter;
     private final long requestTimeoutMs;
     private final EndpointHealthTracker endpointHealthTracker;
+    private volatile List<RpcInvocationListener> invocationListeners = List.of();
 
     // 异步模式：方法返回 CompletableFuture<T> 而非 T
     private boolean asyncMode = false;
@@ -189,6 +193,10 @@ public class RpcClientProxy implements InvocationHandler {
 
     public void setServiceGroup(String serviceGroup) {
         this.serviceGroup = serviceGroup;
+    }
+
+    public void setInvocationListeners(List<RpcInvocationListener> listeners) {
+        this.invocationListeners = listeners == null ? List.of() : List.copyOf(listeners);
     }
 
     /**
@@ -428,8 +436,11 @@ public class RpcClientProxy implements InvocationHandler {
             log.debug("Selected instance: {} for service: {}", instance.getAddress(), serviceName);
         }
 
+        long startedNanos = System.nanoTime();
         try {
             RpcResponse response = nettyClient.sendSync(targetHost, targetPort, request);
+            emitInvocation(request, response.getStatus() == RpcResponse.STATUS_FAIL ? response.getErrorCode() : null,
+                    startedNanos, targetHost + ":" + targetPort);
             if (response.getStatus() == RpcResponse.STATUS_SUCCESS) {
                 endpointHealthTracker.recordSuccess(targetHost + ":" + targetPort);
             } else {
@@ -440,7 +451,33 @@ public class RpcClientProxy implements InvocationHandler {
             // 记录失败节点，下次重试时排除
             FAILED_NODES.get().add(targetHost + ":" + targetPort);
             endpointHealthTracker.recordFailure(targetHost + ":" + targetPort);
+            RpcErrorCode errorCode = e instanceof RpcException rpcException
+                    ? rpcException.getErrorCode() : RpcErrorCode.UNAVAILABLE;
+            emitInvocation(request, errorCode, startedNanos, targetHost + ":" + targetPort);
             throw e;
+        }
+    }
+
+    private void emitInvocation(RpcRequest request, RpcErrorCode errorCode, long startedNanos, String targetEndpoint) {
+        if (invocationListeners.isEmpty()) {
+            return;
+        }
+        int attempt = 0;
+        String retryAttempt = request.getContext() == null ? null
+                : request.getContext().getAttachments().get("retryAttempt");
+        try {
+            attempt = retryAttempt == null ? 0 : Integer.parseInt(retryAttempt);
+        } catch (NumberFormatException ignored) {
+            // A malformed optional attachment must not change request completion semantics.
+        }
+        RpcInvocationEvent event = new RpcInvocationEvent("client", request.getInterfaceName(), errorCode,
+                System.nanoTime() - startedNanos, attempt, targetEndpoint, Map.of());
+        for (RpcInvocationListener listener : invocationListeners) {
+            try {
+                listener.onComplete(event);
+            } catch (RuntimeException e) {
+                log.warn("RPC invocation listener failed", e);
+            }
         }
     }
 }

@@ -6,6 +6,7 @@ import com.minirpc.common.protocol.SerializerType;
 import com.minirpc.core.client.NettyClient;
 import com.minirpc.core.config.RpcConfig;
 import com.minirpc.core.loadbalance.LoadBalancer;
+import com.minirpc.core.observability.RpcInvocationListener;
 import com.minirpc.core.loadbalance.RandomLoadBalancer;
 import com.minirpc.core.proxy.RpcClientProxy;
 import com.minirpc.registry.ServiceDiscovery;
@@ -14,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -46,6 +48,7 @@ public class RpcClient {
     private final ServiceDiscovery serviceDiscovery;
     private final LoadBalancer loadBalancer;
     private final RpcConfig config;
+    private final List<RpcInvocationListener> invocationListeners = new CopyOnWriteArrayList<>();
 
     // 直连模式
     private String directHost;
@@ -114,6 +117,7 @@ public class RpcClient {
         } else {
             proxy = new RpcClientProxy(nettyClient, serviceDiscovery, loadBalancer, config);
         }
+        proxy.setInvocationListeners(invocationListeners);
         proxy.setServiceVersion(version);
         proxy.setServiceGroup(group);
         log.info("Created RPC proxy for: {}", interfaceClass.getName());
@@ -139,6 +143,7 @@ public class RpcClient {
         } else {
             proxy = new RpcClientProxy(nettyClient, serviceDiscovery, loadBalancer, config);
         }
+        proxy.setInvocationListeners(invocationListeners);
         proxy.setAsyncMode(true);
         log.info("Created async RPC proxy for: {}", interfaceClass.getName());
         return proxy.createProxy(interfaceClass);
@@ -164,10 +169,17 @@ public class RpcClient {
         } else {
             proxy = new RpcClientProxy(nettyClient, serviceDiscovery, loadBalancer, config);
         }
+        proxy.setInvocationListeners(invocationListeners);
         proxy.setGenericMode(true);
         proxy.setGenericInterfaceName(interfaceName);
         log.info("Created generic RPC proxy for: {}", interfaceName);
         return proxy.createProxy(GenericService.class);
+    }
+
+    public void addInvocationListener(RpcInvocationListener listener) {
+        if (listener != null) {
+            invocationListeners.add(listener);
+        }
     }
 
     /**
