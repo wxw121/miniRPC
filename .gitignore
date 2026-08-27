@@ -4,6 +4,7 @@
 # Local agent and editor state
 .superpowers/
 .qoder/
+.worktrees/
 
 # Interview material excluded from the public project repository
 docs/INTERVIEW.md
