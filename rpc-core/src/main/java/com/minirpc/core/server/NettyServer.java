@@ -103,6 +103,9 @@ public class NettyServer {
     public void start() {
         bossGroup = new NioEventLoopGroup(1);
         sslContext = config.getTlsConfig().enabled() ? config.getTlsConfig().createServerSslContext() : null;
+        if (sslContext == null) {
+            log.warn("TLS is disabled while binding to a non-loopback address; RPC traffic may be exposed");
+        }
         workerGroup = new NioEventLoopGroup();
 
         // 创建业务线程池：从 RpcConfig 读取配置
