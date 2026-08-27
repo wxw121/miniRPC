@@ -14,6 +14,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
+import io.netty.handler.ssl.SslContext;
 import io.netty.handler.timeout.IdleStateHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,6 +72,7 @@ public class NettyServer {
      * - Netty Worker 线程负责 IO 读写，如果被业务逻辑阻塞，所有连接都会卡死
      * - Dubbo 的做法：IO 线程只做编解码，业务逻辑提交到独立线程池
      */
+    private SslContext sslContext;
     private ExecutorService businessExecutor;
     private volatile RpcAuthenticator authenticator = RpcAuthenticator.allowAll();
     private final List<RpcInvocationListener> invocationListeners = new CopyOnWriteArrayList<>();
@@ -100,6 +102,7 @@ public class NettyServer {
      */
     public void start() {
         bossGroup = new NioEventLoopGroup(1);
+        sslContext = config.getTlsConfig().enabled() ? config.getTlsConfig().createServerSslContext() : null;
         workerGroup = new NioEventLoopGroup();
 
         // 创建业务线程池：从 RpcConfig 读取配置
@@ -136,6 +139,9 @@ public class NettyServer {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
+                            if (sslContext != null) {
+                                ch.pipeline().addLast("ssl", sslContext.newHandler(ch.alloc()));
+                            }
                             ch.pipeline()
                                     // 心跳检测：60秒读空闲则关闭连接（客户端应每30秒发一次心跳）
                                     .addLast(new IdleStateHandler(60, 0, 0, java.util.concurrent.TimeUnit.SECONDS))

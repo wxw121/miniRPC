@@ -1,6 +1,7 @@
 package com.minirpc.core.config;
 
 import com.minirpc.common.protocol.SerializerType;
+import com.minirpc.core.security.TlsConfig;
 
 import java.util.Objects;
 
@@ -71,6 +72,7 @@ public class RpcConfig {
 
     /** Maximum retry backoff cap in milliseconds. */
     private final long retryMaxBackoffMs;
+    private final TlsConfig tlsConfig;
 
 
     private RpcConfig(Builder builder) {
@@ -90,6 +92,7 @@ public class RpcConfig {
         this.failoverMaxRetries = builder.failoverMaxRetries;
         this.retryBaseBackoffMs = builder.retryBaseBackoffMs;
         this.retryMaxBackoffMs = builder.retryMaxBackoffMs;
+        this.tlsConfig = builder.tlsConfig;
     }
 
     public static Builder builder() {
@@ -121,6 +124,7 @@ public class RpcConfig {
     public int getFailoverMaxRetries() { return failoverMaxRetries; }
     public long getRetryBaseBackoffMs() { return retryBaseBackoffMs; }
     public long getRetryMaxBackoffMs() { return retryMaxBackoffMs; }
+    public TlsConfig getTlsConfig() { return tlsConfig; }
 
     @Override
     public String toString() {
@@ -160,6 +164,7 @@ public class RpcConfig {
         private int failoverMaxRetries = 2;
         private long retryBaseBackoffMs = 100;
         private long retryMaxBackoffMs = 1_000;
+        private TlsConfig tlsConfig = TlsConfig.disabled();
 
         public Builder serializerType(SerializerType serializerType) {
             this.serializerType = serializerType;
@@ -238,6 +243,11 @@ public class RpcConfig {
 
         public Builder retryMaxBackoffMs(long maxBackoffMs) {
             this.retryMaxBackoffMs = maxBackoffMs;
+            return this;
+        }
+
+        public Builder tlsConfig(TlsConfig tlsConfig) {
+            this.tlsConfig = Objects.requireNonNull(tlsConfig, "tlsConfig must not be null");
             return this;
         }
 

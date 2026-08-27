@@ -20,6 +20,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
+import io.netty.handler.ssl.SslContext;
 import io.netty.handler.timeout.IdleStateHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,6 +79,7 @@ public class NettyClient {
 
     private final EventLoopGroup group;
     private final Bootstrap bootstrap;
+    private final SslContext sslContext;
 
     public NettyClient() {
         this(SerializerType.HESSIAN2);
@@ -91,6 +93,7 @@ public class NettyClient {
         this.timeoutMs = DEFAULT_TIMEOUT_MS;
         this.poolSize = 4;
         this.group = new NioEventLoopGroup();
+        this.sslContext = null;
         this.bootstrap = new Bootstrap();
         initBootstrap(5000, 30);
     }
@@ -106,6 +109,7 @@ public class NettyClient {
         this.timeoutMs = config.getTimeoutMs();
         this.poolSize = config.getConnectionPoolSize();
         this.group = new NioEventLoopGroup();
+        this.sslContext = config.getTlsConfig().enabled() ? config.getTlsConfig().createClientSslContext() : null;
         this.bootstrap = new Bootstrap();
         initBootstrap(config.getConnectTimeoutMs(), config.getHeartbeatIntervalSeconds());
     }
@@ -122,6 +126,9 @@ public class NettyClient {
                 .handler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
+                        if (sslContext != null) {
+                            ch.pipeline().addLast("ssl", sslContext.newHandler(ch.alloc()));
+                        }
                         ch.pipeline()
                                 // 写空闲检测：配置的心跳间隔无写操作则触发心跳
                                 .addLast(new IdleStateHandler(0, heartbeatIntervalSeconds, 0, java.util.concurrent.TimeUnit.SECONDS))
