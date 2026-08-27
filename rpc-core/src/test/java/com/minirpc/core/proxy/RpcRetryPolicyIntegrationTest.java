@@ -25,7 +25,7 @@ class RpcRetryPolicyIntegrationTest {
 
     @Test
     void idempotentOperationsDoNotRetryAfterTheirDeadline() {
-        FailingClient client = new FailingClient(RpcErrorCode.UNAVAILABLE);
+        FailingClient client = new FailingClient(RpcErrorCode.UNAVAILABLE, 5);
         try {
             ReadService service = proxy(client, RpcConfig.builder()
                     .timeoutMs(1)
@@ -80,16 +80,30 @@ class RpcRetryPolicyIntegrationTest {
 
     private static class FailingClient extends NettyClient {
         private final RpcErrorCode errorCode;
+        private final long failureDelayMillis;
         private final List<String> retryAttempts = new ArrayList<>();
         private int calls;
 
         FailingClient(RpcErrorCode errorCode) {
+            this(errorCode, 0);
+        }
+
+        FailingClient(RpcErrorCode errorCode, long failureDelayMillis) {
             super(RpcConfig.defaultConfig());
             this.errorCode = errorCode;
+            this.failureDelayMillis = failureDelayMillis;
         }
 
         @Override
         public RpcResponse sendSync(String host, int port, RpcRequest request) {
+            if (failureDelayMillis > 0) {
+                try {
+                    Thread.sleep(failureDelayMillis);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+            }
             calls++;
             retryAttempts.add(request.getContext().getAttachments().get("retryAttempt"));
             throw new RpcException(errorCode, "simulated network failure");
