@@ -1,7 +1,6 @@
 package com.minirpc.common.protocol;
 
 import java.io.Serializable;
-import java.util.Arrays;
 
 /**
  * RPC 请求对象
@@ -186,8 +185,7 @@ public class RpcRequest implements Serializable {
                 "requestId='" + requestId + '\'' +
                 ", interfaceName='" + interfaceName + '\'' +
                 ", methodName='" + methodName + '\'' +
-                ", parameterTypeNames=" + Arrays.toString(parameterTypeNames) +
-                ", parameters=" + Arrays.toString(parameters) +
+                ", parameterCount=" + (parameters == null ? 0 : parameters.length) +
                 '}';
     }
 }

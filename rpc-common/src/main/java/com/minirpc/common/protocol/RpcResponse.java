@@ -121,9 +121,8 @@ public class RpcResponse implements Serializable {
         return "RpcResponse{" +
                 "requestId='" + requestId + '\'' +
                 ", status=" + status +
-                ", data=" + data +
+                ", hasData=" + (data != null) +
                 ", errorCode=" + getErrorCode() +
-                ", errorMessage='" + errorMessage + '\'' +
                 '}';
     }
 }
