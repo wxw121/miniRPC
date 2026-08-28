@@ -24,5 +24,9 @@ class MiniRpcMeterRegistryListenerTest {
         Meter.Id meterId = registry.find("minirpc.rpc.calls").meter().getId();
         Set<String> tagKeys = meterId.getTags().stream().map(tag -> tag.getKey()).collect(java.util.stream.Collectors.toSet());
         assertEquals(Set.of("side", "service", "outcome", "error_code"), tagKeys);
+        assertEquals(1.0, registry.get("minirpc.rpc.retries").counter().count());
+        listener.onComplete(new RpcInvocationEvent("client", "example.EchoService", RpcErrorCode.DEADLINE_EXCEEDED,
+                1_000_000, 0, "10.0.0.8:9090", Map.of()));
+        assertEquals(1.0, registry.get("minirpc.rpc.timeouts").counter().count());
     }
 }

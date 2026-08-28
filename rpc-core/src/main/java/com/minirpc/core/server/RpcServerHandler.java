@@ -261,7 +261,8 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcMessage> {
         }
         RpcInvocationEvent event = new RpcInvocationEvent(
                 "server", request.getInterfaceName(), RpcErrorCode.CANCELLED,
-                System.nanoTime() - startedNanos, attempt, String.valueOf(ctx.channel().localAddress()), Map.of());
+                System.nanoTime() - startedNanos, attempt, String.valueOf(ctx.channel().localAddress()),
+                request.getContext() == null ? "" : request.getContext().getTraceId(), Map.of());
         for (RpcInvocationListener listener : invocationListeners) {
             try {
                 listener.onComplete(event);
@@ -285,7 +286,8 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcMessage> {
         }
         RpcInvocationEvent event = new RpcInvocationEvent(
                 "server", request.getInterfaceName(), errorCode, System.nanoTime() - startedNanos, attempt,
-                String.valueOf(ctx.channel().localAddress()), Map.of());
+                String.valueOf(ctx.channel().localAddress()),
+                request.getContext() == null ? "" : request.getContext().getTraceId(), Map.of());
         for (RpcInvocationListener listener : invocationListeners) {
             try {
                 listener.onComplete(event);

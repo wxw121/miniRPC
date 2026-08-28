@@ -26,5 +26,12 @@ public final class MiniRpcMeterRegistryListener implements RpcInvocationListener
         Counter.builder("minirpc.rpc.calls").tags(tags).register(meterRegistry).increment();
         Timer.builder("minirpc.rpc.duration").tags(tags).register(meterRegistry)
                 .record(event.durationNanos(), java.util.concurrent.TimeUnit.NANOSECONDS);
+        String[] operationTags = {"side", event.side(), "service", event.service()};
+        if (event.attempt() > 0) {
+            Counter.builder("minirpc.rpc.retries").tags(operationTags).register(meterRegistry).increment();
+        }
+        if (event.errorCode() == com.minirpc.common.protocol.RpcErrorCode.DEADLINE_EXCEEDED) {
+            Counter.builder("minirpc.rpc.timeouts").tags(operationTags).register(meterRegistry).increment();
+        }
     }
 }

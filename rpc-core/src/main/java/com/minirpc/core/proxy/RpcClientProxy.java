@@ -484,7 +484,8 @@ public class RpcClientProxy implements InvocationHandler {
             // A malformed optional attachment must not change request completion semantics.
         }
         RpcInvocationEvent event = new RpcInvocationEvent("client", request.getInterfaceName(), errorCode,
-                System.nanoTime() - startedNanos, attempt, targetEndpoint, Map.of());
+                System.nanoTime() - startedNanos, attempt, targetEndpoint,
+                request.getContext() == null ? "" : request.getContext().getTraceId(), Map.of());
         for (RpcInvocationListener listener : invocationListeners) {
             try {
                 listener.onComplete(event);
