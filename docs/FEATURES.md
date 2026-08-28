@@ -199,10 +199,10 @@ minirpc:
 ```
 ## 15. 可靠性、可观测性与传输安全
 
-**调用事件与指标**：核心通过 `RpcInvocationListener` 发布每次客户端/服务端调用尝试。Starter 可选地记录 `minirpc.rpc.calls` 和 `minirpc.rpc.duration`；固定低基数标签为 `side`、`service`、`outcome`、`error_code`，不会把请求 ID、trace ID、端点、参数或响应体写入标签。显式开启 OpenTelemetry 时，每次尝试创建 `minirpc.rpc` span，且不导出请求元数据属性。
+**调用事件与指标**：核心通过 `RpcInvocationListener` 发布每次客户端/服务端调用尝试。Starter 可选地记录 `minirpc.rpc.calls`、`minirpc.rpc.duration`、`minirpc.rpc.retries` 与 `minirpc.rpc.timeouts`；固定低基数标签为 `side`、`service`、`outcome`、`error_code`，不会把请求 ID、trace ID、端点、参数或响应体写入标签。显式开启 OpenTelemetry 时，每次尝试创建 `minirpc.rpc` span，写入 `rpc.side`、`rpc.service`、`rpc.retry_attempt`、`rpc.error_code` 及关联属性 `rpc.trace_id`、`rpc.target_endpoint`；业务参数、响应体和凭据不导出。
 
 **重试治理**：仅 `@RpcIdempotent` 方法可 failover，且只针对 `UNAVAILABLE`、`OVERLOADED`。重试预算、指数退避上限和绝对 deadline 共同限制后续尝试；deadline 已耗尽不会启动新请求。客户端端点失败会临时摘除，恢复期只允许一个探测请求。
 
 **TLS/mTLS**：`RpcConfig` 的 TLS 是 opt-in。TLS handler 在协议帧之前安装；mTLS 要求客户端证书。启用时使用部署环境提供的 PKCS#12 key/trust store，缺少必需配置会在启动期失败。服务端以非回环地址明文绑定会记录告警。
 
-**健康检查与认证**：Starter 提供 `minirpcReadiness`（服务运行且未停机）和 `minirpcLiveness`（未进入优雅停机），均带 `running`、`shuttingDown`、`inFlightRequests` 详情。应用层认证在业务执行前完成，失败返回 `UNAUTHORIZED`，不会占用业务线程池。
+**健康检查与认证**：Starter 提供 `minirpcReadiness`（服务运行、未停机且业务执行器未饱和）和 `minirpcLiveness`（未进入优雅停机），均带 `running`、`shuttingDown`、`inFlightRequests`、注册中心配置/服务数、活跃连接数，以及业务线程池活跃数、队列容量/积压和饱和状态详情。应用层认证在业务执行前完成，失败返回 `UNAUTHORIZED`，不会占用业务线程池。

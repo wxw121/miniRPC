@@ -43,6 +43,10 @@ class MiniRpcAutoConfigurationTest {
                     Health readiness = context.getBean("minirpcReadiness", HealthIndicator.class).health();
                     Health liveness = context.getBean("minirpcLiveness", HealthIndicator.class).health();
                     assertThat(readiness.getStatus()).isEqualTo(org.springframework.boot.actuate.health.Status.DOWN);
+                    assertThat(readiness.getDetails()).containsKeys(
+                            "registryConfigured", "registeredServiceCount", "activeConnections",
+                            "activeBusinessThreads", "queuedBusinessTasks", "businessQueueCapacity",
+                            "businessExecutorSaturated");
                     assertThat(liveness.getStatus()).isEqualTo(org.springframework.boot.actuate.health.Status.UP);
                 });
     }

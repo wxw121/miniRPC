@@ -11,11 +11,14 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.group.ChannelGroup;
+import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.timeout.IdleStateHandler;
+import io.netty.util.concurrent.GlobalEventExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,6 +67,7 @@ public class NettyServer {
      */
     private final AtomicBoolean stopped = new AtomicBoolean(false);
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final ChannelGroup childChannels = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
 
     /**
      * 业务线程池：将反射调用从 Netty IO 线程剥离
@@ -73,7 +77,7 @@ public class NettyServer {
      * - Dubbo 的做法：IO 线程只做编解码，业务逻辑提交到独立线程池
      */
     private SslContext sslContext;
-    private ExecutorService businessExecutor;
+    private ThreadPoolExecutor businessExecutor;
     private volatile RpcAuthenticator authenticator = RpcAuthenticator.allowAll();
     private final List<RpcInvocationListener> invocationListeners = new CopyOnWriteArrayList<>();
 
@@ -142,6 +146,7 @@ public class NettyServer {
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         protected void initChannel(SocketChannel ch) {
+                            childChannels.add(ch);
                             if (sslContext != null) {
                                 ch.pipeline().addLast("ssl", sslContext.newHandler(ch.alloc()));
                             }
@@ -184,6 +189,29 @@ public class NettyServer {
         return running.get();
     }
 
+    public int getActiveConnectionCount() {
+        return childChannels.size();
+    }
+
+    public int getActiveBusinessThreads() {
+        return businessExecutor == null ? 0 : businessExecutor.getActiveCount();
+    }
+
+    public int getQueuedBusinessTasks() {
+        return businessExecutor == null ? 0 : businessExecutor.getQueue().size();
+    }
+
+    public int getBusinessQueueCapacity() {
+        return businessExecutor == null ? config.getBizQueueCapacity()
+                : businessExecutor.getQueue().size() + businessExecutor.getQueue().remainingCapacity();
+    }
+
+    public boolean isBusinessExecutorSaturated() {
+        return businessExecutor != null
+                && businessExecutor.getActiveCount() >= businessExecutor.getMaximumPoolSize()
+                && businessExecutor.getQueue().remainingCapacity() == 0;
+    }
+
     /**
      * 停止服务端（幂等：多次调用只执行一次）
      */
@@ -192,6 +220,7 @@ public class NettyServer {
             return; // 已经停止过，直接返回
         }
         running.set(false);
+        childChannels.close().awaitUninterruptibly();
         if (bossGroup != null) {
             bossGroup.shutdownGracefully();
         }

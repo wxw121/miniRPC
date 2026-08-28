@@ -151,9 +151,9 @@ Object result = generic.$invoke("echo",
 - TLS 配置：`minirpc.client.tls.*` 与 `minirpc.server.tls.*` 支持 `enabled`、`key-store-path`、`key-store-password`、`trust-store-path`、`trust-store-password`、`mutual-authentication`。启用 TLS 时必须提供 PKCS#12 key store 及其密码；mTLS 还必须提供 trust store。证书、私钥和密码由部署环境提供，不能提交到仓库。
 - 可观测性：Micrometer 在类路径中有 `MeterRegistry` 时默认启用，可用 `minirpc.observability.micrometer-enabled=false` 关闭；OpenTelemetry 由 `minirpc.observability.opentelemetry-enabled=true` 显式开启。
 
-Micrometer 指标为 `minirpc.rpc.calls` 与 `minirpc.rpc.duration`，固定标签只有 `side`、`service`、`outcome`、`error_code`。每次调用尝试可创建一个名为 `minirpc.rpc` 的 OpenTelemetry span；请求 ID、trace ID、端点、参数和响应体不会作为指标标签或 span 属性导出。日志仍可用 `requestId`、`traceId` 和服务键关联调用，但不得记录业务参数或凭据。
+Micrometer 指标为 `minirpc.rpc.calls`、`minirpc.rpc.duration`、`minirpc.rpc.retries` 与 `minirpc.rpc.timeouts`；固定标签只有 `side`、`service`、`outcome`、`error_code`，trace ID 与端点绝不会写入指标标签。每次调用尝试可创建一个名为 `minirpc.rpc` 的 OpenTelemetry span，属性为 `rpc.side`、`rpc.service`、`rpc.retry_attempt`、`rpc.error_code`，以及用于关联的 `rpc.trace_id`、`rpc.target_endpoint`。业务参数、响应体和凭据不会导出。日志仍可用 `requestId`、`traceId` 和服务键关联调用，但不得记录业务参数或凭据。
 
-启用 Actuator 后，`minirpcReadiness` 仅在 RPC Server 已运行且不在优雅停机时为 UP；`minirpcLiveness` 在未进入优雅停机时为 UP。两者均包含 `running`、`shuttingDown`、`inFlightRequests` 详情。对非回环地址的明文服务端绑定会发出安全告警。
+启用 Actuator 后，`minirpcReadiness` 仅在 RPC Server 已运行、未进入优雅停机且业务执行器未饱和时为 UP；`minirpcLiveness` 在未进入优雅停机时为 UP。两者均包含 `running`、`shuttingDown`、`inFlightRequests`、注册中心配置/已注册服务数、活跃连接数，以及业务线程池活跃数、队列状态和饱和标志。对非回环地址的明文服务端绑定会发出安全告警。
 ## 📚 文档导航
 
 | 文档 | 内容 |

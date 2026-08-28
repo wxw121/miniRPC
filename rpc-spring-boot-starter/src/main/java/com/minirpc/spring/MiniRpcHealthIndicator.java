@@ -26,6 +26,13 @@ public final class MiniRpcHealthIndicator implements HealthIndicator {
         return builder.withDetail("running", status.running())
                 .withDetail("shuttingDown", status.shuttingDown())
                 .withDetail("inFlightRequests", status.inFlightRequests())
+                .withDetail("registryConfigured", status.registryConfigured())
+                .withDetail("registeredServiceCount", status.registeredServiceCount())
+                .withDetail("activeConnections", status.activeConnections())
+                .withDetail("activeBusinessThreads", status.activeBusinessThreads())
+                .withDetail("queuedBusinessTasks", status.queuedBusinessTasks())
+                .withDetail("businessQueueCapacity", status.businessQueueCapacity())
+                .withDetail("businessExecutorSaturated", status.businessExecutorSaturated())
                 .build();
     }
 

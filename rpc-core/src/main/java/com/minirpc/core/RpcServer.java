@@ -187,9 +187,19 @@ public class RpcServer {
 
     /** Current in-process readiness state for monitoring integrations. */
     public RpcServerStatus getStatus() {
+        int registeredServiceCount = registry == null
+                ? LocalServiceRegistry.getServiceCount()
+                : registeredInstances.size();
         return new RpcServerStatus(nettyServer.isRunning(),
                 nettyServer.getShutdownManager().isShuttingDown(),
-                nettyServer.getShutdownManager().getInFlightCount());
+                nettyServer.getShutdownManager().getInFlightCount(),
+                registry != null,
+                registeredServiceCount,
+                nettyServer.getActiveConnectionCount(),
+                nettyServer.getActiveBusinessThreads(),
+                nettyServer.getQueuedBusinessTasks(),
+                nettyServer.getBusinessQueueCapacity(),
+                nettyServer.isBusinessExecutorSaturated());
     }
 
     /**

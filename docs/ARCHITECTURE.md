@@ -194,4 +194,4 @@ sample → spring-boot-starter → core → registry → common
 
 TLS 在 Netty pipeline 的帧拆分、编解码和心跳之前安装；mTLS 在握手阶段要求并验证客户端证书。应用层认证在请求解码和 deadline 检查之后、业务线程池提交之前执行，拒绝映射为 `UNAUTHORIZED`，线程池拒绝映射为 `OVERLOADED`。这保证未认证请求不会占用业务执行器。
 
-Starter 将 `RpcServerStatus` 暴露为独立的 `minirpcReadiness` 与 `minirpcLiveness` 健康指标，详情包含运行状态、优雅停机状态和 in-flight 请求数。
+Starter 将 `RpcServerStatus` 暴露为独立的 `minirpcReadiness` 与 `minirpcLiveness` 健康指标。除了运行状态、优雅停机状态和 in-flight 请求数，详情还包含注册中心配置与已注册服务数、活跃连接数，以及业务线程池活跃数、队列状态和饱和标志；业务执行器饱和时 readiness 为 DOWN。
