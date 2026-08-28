@@ -60,11 +60,13 @@ mini-rpc
 
 > 网络 RPC 仅支持 `hessian2`（默认）和 `protostuff`。`jdk` 序列化配置会在启动时被拒绝。
 
-### 1. 编译 & 测试
+### 1. 安装、编译 & 测试
 
 ```bash
-mvn clean test
+mvn clean install
 ```
+
+这会先把各模块安装到本地 Maven 仓库；之后的单模块示例启动命令才能解析 `rpc-core` 和 `rpc-sample-api`。
 
 ### 2. 直连模式（无需 ZooKeeper）
 

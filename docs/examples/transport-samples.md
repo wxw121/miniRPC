@@ -1,6 +1,6 @@
 # 本地明文、TLS 与 mTLS 样例
 
-示例 Provider 与 Consumer 共用同一套启动类。`rpc.security.mode` 决定传输模式：`plaintext`、`tls` 或 `mtls`。TLS 证书由部署方提供；下面的脚本只生成 30 天有效期的本地演示材料，输出目录不会被 Git 跟踪。
+示例 Provider 与 Consumer 共用同一套启动类。`rpc.security.mode` 决定传输模式：`plaintext`、`tls` 或 `mtls`。先从仓库根目录执行 `mvn clean install`，再运行下面的单模块启动命令。TLS 证书由部署方提供；下面的脚本只生成 30 天有效期的本地演示材料，输出目录不会被 Git 跟踪。
 
 在 PowerShell 中先生成材料并保存绝对路径：
 
@@ -14,13 +14,13 @@ $cert = (Resolve-Path .\build\local-tls).Path
 终端一：
 
 ```powershell
-mvn -pl rpc-sample-server -am exec:java '-Dexec.mainClass=com.minirpc.sample.server.ServerApplication' '-Drpc.security.mode=plaintext'
+mvn -pl rpc-sample-server exec:java '-Dexec.mainClass=com.minirpc.sample.server.ServerApplication' '-Drpc.security.mode=plaintext'
 ```
 
 终端二：
 
 ```powershell
-mvn -pl rpc-sample-client -am exec:java '-Dexec.mainClass=com.minirpc.sample.client.ClientApplication' '-Drpc.security.mode=plaintext'
+mvn -pl rpc-sample-client exec:java '-Dexec.mainClass=com.minirpc.sample.client.ClientApplication' '-Drpc.security.mode=plaintext'
 ```
 
 ## TLS 直连
@@ -28,13 +28,13 @@ mvn -pl rpc-sample-client -am exec:java '-Dexec.mainClass=com.minirpc.sample.cli
 终端一：
 
 ```powershell
-mvn -pl rpc-sample-server -am exec:java '-Dexec.mainClass=com.minirpc.sample.server.ServerApplication' '-Drpc.security.mode=tls' "-Drpc.tls.server.key-store=$cert\server.p12" '-Drpc.tls.server.key-store-password=changeit' "-Drpc.tls.server.trust-store=$cert\server-trust.p12" '-Drpc.tls.server.trust-store-password=changeit'
+mvn -pl rpc-sample-server exec:java '-Dexec.mainClass=com.minirpc.sample.server.ServerApplication' '-Drpc.security.mode=tls' "-Drpc.tls.server.key-store=$cert\server.p12" '-Drpc.tls.server.key-store-password=changeit' "-Drpc.tls.server.trust-store=$cert\server-trust.p12" '-Drpc.tls.server.trust-store-password=changeit'
 ```
 
 终端二：
 
 ```powershell
-mvn -pl rpc-sample-client -am exec:java '-Dexec.mainClass=com.minirpc.sample.client.ClientApplication' '-Drpc.security.mode=tls' "-Drpc.tls.client.key-store=$cert\client.p12" '-Drpc.tls.client.key-store-password=changeit' "-Drpc.tls.client.trust-store=$cert\client-trust.p12" '-Drpc.tls.client.trust-store-password=changeit'
+mvn -pl rpc-sample-client exec:java '-Dexec.mainClass=com.minirpc.sample.client.ClientApplication' '-Drpc.security.mode=tls' "-Drpc.tls.client.key-store=$cert\client.p12" '-Drpc.tls.client.key-store-password=changeit' "-Drpc.tls.client.trust-store=$cert\client-trust.p12" '-Drpc.tls.client.trust-store-password=changeit'
 ```
 
 ## mTLS 直连
@@ -44,13 +44,13 @@ mvn -pl rpc-sample-client -am exec:java '-Dexec.mainClass=com.minirpc.sample.cli
 终端一：
 
 ```powershell
-mvn -pl rpc-sample-server -am exec:java '-Dexec.mainClass=com.minirpc.sample.server.ServerApplication' '-Drpc.security.mode=mtls' "-Drpc.tls.server.key-store=$cert\server.p12" '-Drpc.tls.server.key-store-password=changeit' "-Drpc.tls.server.trust-store=$cert\server-trust.p12" '-Drpc.tls.server.trust-store-password=changeit'
+mvn -pl rpc-sample-server exec:java '-Dexec.mainClass=com.minirpc.sample.server.ServerApplication' '-Drpc.security.mode=mtls' "-Drpc.tls.server.key-store=$cert\server.p12" '-Drpc.tls.server.key-store-password=changeit' "-Drpc.tls.server.trust-store=$cert\server-trust.p12" '-Drpc.tls.server.trust-store-password=changeit'
 ```
 
 终端二：
 
 ```powershell
-mvn -pl rpc-sample-client -am exec:java '-Dexec.mainClass=com.minirpc.sample.client.ClientApplication' '-Drpc.security.mode=mtls' "-Drpc.tls.client.key-store=$cert\client.p12" '-Drpc.tls.client.key-store-password=changeit' "-Drpc.tls.client.trust-store=$cert\client-trust.p12" '-Drpc.tls.client.trust-store-password=changeit'
+mvn -pl rpc-sample-client exec:java '-Dexec.mainClass=com.minirpc.sample.client.ClientApplication' '-Drpc.security.mode=mtls' "-Drpc.tls.client.key-store=$cert\client.p12" '-Drpc.tls.client.key-store-password=changeit' "-Drpc.tls.client.trust-store=$cert\client-trust.p12" '-Drpc.tls.client.trust-store-password=changeit'
 ```
 
 可选的 `-Dzk.address=127.0.0.1:2181` 仍可与三种模式组合使用；Provider 和 Consumer 必须使用一致的传输模式。
