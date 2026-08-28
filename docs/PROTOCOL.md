@@ -143,3 +143,11 @@ MiniRPC 采用 **长度字段法**：
 | 非法数据包 | 魔数校验，不匹配直接拒绝 |
 | 恶意超大 Body（OOM 攻击） | Body Length 上限 8MB 校验 |
 | 协议升级冲突 | Version 字段预留兼容性 |
+
+## 九、传输安全与错误边界
+
+TLS 不是应用协议帧的一部分。启用后，Netty 在 9 字节 MiniRPC 帧编解码之前完成 TLS 握手，因此帧头和消息体都由 TLS 记录层保护。mTLS 会在握手阶段要求客户端证书；握手失败的连接不会进入请求处理链。
+
+TLS 使用部署提供的 PKCS#12 key store / trust store。框架不生成、持久化或打印私钥、密码，也不提供 `trustAll` 模式。`minirpc.*.tls.enabled=true` 缺少 key store 路径或密码会在配置创建阶段失败；mTLS 缺少 trust store 也会失败。
+
+请求通过可选应用层认证后才会进入业务执行器。认证失败返回稳定错误码 `UNAUTHORIZED`；饱和的业务线程池返回 `OVERLOADED`；可重试的传输不可用返回 `UNAVAILABLE`。客户端只会为显式 `@RpcIdempotent` 调用按这些稳定错误码作有限重试，绝不依赖异常文本。

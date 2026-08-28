@@ -143,6 +143,17 @@ Object result = generic.$invoke("echo",
         new Object[]{"hello"});
 ```
 
+## 安全、重试与可观测性配置
+
+`rpc-sample-*/src/main/resources/application.yml` 是 Spring Boot Starter 的配置模板；示例应用本身仍以编程方式启动。完整 TLS/mTLS 模板位于 [`docs/examples/tls/application.yml`](docs/examples/tls/application.yml) 与 [`docs/examples/mtls/application.yml`](docs/examples/mtls/application.yml)，并由测试解析校验。
+
+- 重试配置：`minirpc.client.retry.max-retries`（默认 `2`）、`base-backoff-ms`（默认 `100`）与 `max-backoff-ms`（默认 `1000`）。只有 `@RpcIdempotent` 方法在 `UNAVAILABLE` 或 `OVERLOADED` 时才会重试；延迟采用有界抖动，并且不会越过请求的绝对 deadline。
+- TLS 配置：`minirpc.client.tls.*` 与 `minirpc.server.tls.*` 支持 `enabled`、`key-store-path`、`key-store-password`、`trust-store-path`、`trust-store-password`、`mutual-authentication`。启用 TLS 时必须提供 PKCS#12 key store 及其密码；mTLS 还必须提供 trust store。证书、私钥和密码由部署环境提供，不能提交到仓库。
+- 可观测性：Micrometer 在类路径中有 `MeterRegistry` 时默认启用，可用 `minirpc.observability.micrometer-enabled=false` 关闭；OpenTelemetry 由 `minirpc.observability.opentelemetry-enabled=true` 显式开启。
+
+Micrometer 指标为 `minirpc.rpc.calls` 与 `minirpc.rpc.duration`，固定标签只有 `side`、`service`、`outcome`、`error_code`。每次调用尝试可创建一个名为 `minirpc.rpc` 的 OpenTelemetry span；请求 ID、trace ID、端点、参数和响应体不会作为指标标签或 span 属性导出。日志仍可用 `requestId`、`traceId` 和服务键关联调用，但不得记录业务参数或凭据。
+
+启用 Actuator 后，`minirpcReadiness` 仅在 RPC Server 已运行且不在优雅停机时为 UP；`minirpcLiveness` 在未进入优雅停机时为 UP。两者均包含 `running`、`shuttingDown`、`inFlightRequests` 详情。对非回环地址的明文服务端绑定会发出安全告警。
 ## 📚 文档导航
 
 | 文档 | 内容 |

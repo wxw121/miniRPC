@@ -1,0 +1,13 @@
+# Spring Boot Starter template. The programming sample itself does not load YAML.
+minirpc:
+  enabled: true
+  client:
+    retry:
+      max-retries: 2
+      base-backoff-ms: 100
+      max-backoff-ms: 1000
+    tls:
+      enabled: false
+  observability:
+    micrometer-enabled: true
+    opentelemetry-enabled: false

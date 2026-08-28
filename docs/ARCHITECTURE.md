@@ -185,3 +185,13 @@ sample → spring-boot-starter → core → registry → common
 | 本地缓存服务列表 | 避免每次调用都访问注册中心，注册中心宕机不影响调用 |
 | CompletableFuture | 统一同步/异步模型，同步 = future.get() |
 | SPI 机制 | 注册中心、序列化器可插拔，符合开闭原则 |
+
+## 八、可靠性、可观测性与安全边界
+
+`rpc-core` 通过无框架依赖的 `RpcInvocationEvent` / `RpcInvocationListener` 发布每次客户端或服务端调用尝试的结果。事件记录调用侧、服务键、稳定错误码、耗时、尝试次数和目标端点；Spring Boot Starter 在边缘可选地将其适配为 Micrometer 和 OpenTelemetry，核心模块不依赖这些库。
+
+客户端代理只为 `@RpcIdempotent` 调用选择 failover。`RetryPolicy` 只接收 `UNAVAILABLE` 和 `OVERLOADED`，采用有界抖动退避，并在开始下一次尝试前再次检查绝对 deadline。端点摘除与单个恢复探测只保存在客户端本地，不回写注册中心。
+
+TLS 在 Netty pipeline 的帧拆分、编解码和心跳之前安装；mTLS 在握手阶段要求并验证客户端证书。应用层认证在请求解码和 deadline 检查之后、业务线程池提交之前执行，拒绝映射为 `UNAUTHORIZED`，线程池拒绝映射为 `OVERLOADED`。这保证未认证请求不会占用业务执行器。
+
+Starter 将 `RpcServerStatus` 暴露为独立的 `minirpcReadiness` 与 `minirpcLiveness` 健康指标，详情包含运行状态、优雅停机状态和 in-flight 请求数。

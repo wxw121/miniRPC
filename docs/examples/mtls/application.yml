@@ -1,0 +1,19 @@
+# mTLS template for a Spring Boot service. Each peer needs its own PKCS#12 identity and trust store.
+minirpc:
+  server:
+    enabled: true
+    tls:
+      enabled: true
+      key-store-path: ${MINIRPC_SERVER_KEYSTORE}
+      key-store-password: ${MINIRPC_SERVER_KEYSTORE_PASSWORD}
+      trust-store-path: ${MINIRPC_SERVER_TRUSTSTORE}
+      trust-store-password: ${MINIRPC_SERVER_TRUSTSTORE_PASSWORD}
+      mutual-authentication: true
+  client:
+    tls:
+      enabled: true
+      key-store-path: ${MINIRPC_CLIENT_KEYSTORE}
+      key-store-password: ${MINIRPC_CLIENT_KEYSTORE_PASSWORD}
+      trust-store-path: ${MINIRPC_CLIENT_TRUSTSTORE}
+      trust-store-password: ${MINIRPC_CLIENT_TRUSTSTORE_PASSWORD}
+      mutual-authentication: true

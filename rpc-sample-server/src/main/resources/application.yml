@@ -1,0 +1,11 @@
+# Spring Boot Starter template. The programming sample itself does not load YAML.
+minirpc:
+  enabled: true
+  server:
+    enabled: true
+    port: 9090
+    tls:
+      enabled: false
+  observability:
+    micrometer-enabled: true
+    opentelemetry-enabled: false
