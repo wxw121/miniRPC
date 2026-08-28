@@ -5,6 +5,7 @@ import com.minirpc.common.protocol.RpcErrorCode;
 import com.minirpc.common.protocol.MessageType;
 import com.minirpc.common.protocol.RpcMessage;
 import com.minirpc.common.protocol.RpcRequest;
+import com.minirpc.common.protocol.RpcCancellation;
 import com.minirpc.common.protocol.RpcResponse;
 import com.minirpc.common.protocol.SerializerType;
 import com.minirpc.core.codec.RpcMessageDecoder;
@@ -28,6 +29,8 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -210,9 +213,13 @@ public class NettyClient {
         }
         // 先注册 Future（保证无论后续哪个环节失败，都能被清理）
         CompletableFuture<RpcResponse> future = RequestFutureHolder.register(request.getRequestId(), remainingTimeoutMs);
+        AtomicReference<Channel> requestChannel = new AtomicReference<>();
+        AtomicBoolean requestWasWritten = new AtomicBoolean();
+        AtomicBoolean cancellationSent = new AtomicBoolean();
         future.whenComplete((response, error) -> {
             if (future.isCancelled()) {
                 RequestFutureHolder.remove(request.getRequestId());
+                sendCancellationIfNeeded(request.getRequestId(), requestChannel, requestWasWritten, cancellationSent);
             }
         });
 
@@ -221,9 +228,19 @@ public class NettyClient {
             ChannelPool pool = getPool(host, port);
             Channel channel = pool.acquire();
 
+            requestChannel.set(channel);
+            if (future.isCancelled()) {
+                return future;
+            }
+
             // 构建消息并发送
             RpcMessage message = new RpcMessage(MessageType.REQUEST, serializerType, request);
-            channel.writeAndFlush(message).addListener(f -> {
+            ChannelFuture writeFuture = channel.writeAndFlush(message);
+            requestWasWritten.set(true);
+            if (future.isCancelled()) {
+                sendCancellationIfNeeded(request.getRequestId(), requestChannel, requestWasWritten, cancellationSent);
+            }
+            writeFuture.addListener(f -> {
                 if (!f.isSuccess()) {
                     RequestFutureHolder.completeExceptionally(
                             request.getRequestId(),
@@ -242,6 +259,12 @@ public class NettyClient {
         return future;
     }
 
+    private void sendCancellationIfNeeded(String requestId, AtomicReference<Channel> requestChannel, AtomicBoolean requestWasWritten, AtomicBoolean cancellationSent) {
+        Channel channel = requestChannel.get();
+        if (channel != null && channel.isActive() && requestWasWritten.get() && cancellationSent.compareAndSet(false, true)) {
+            channel.writeAndFlush(new RpcMessage(MessageType.CANCEL, serializerType, new RpcCancellation(requestId)));
+        }
+    }
     private long remainingTimeoutMs(RpcRequest request) {
         if (request.getContext() == null || request.getContext().getDeadlineEpochMillis() <= 0) {
             return timeoutMs;

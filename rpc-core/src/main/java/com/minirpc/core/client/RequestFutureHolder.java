@@ -108,6 +108,10 @@ public class RequestFutureHolder {
         }
     }
 
+    static boolean contains(String requestId) {
+        return FUTURE_MAP.containsKey(requestId);
+    }
+
     /**
      * 移除一个请求的 Future（超时清理等场景）
      */
