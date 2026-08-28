@@ -28,7 +28,11 @@ public class RpcMessage {
     /**
      * 协议版本
      */
-    public static final byte VERSION = 1;
+    public static final byte VERSION = 2;
+
+    public static boolean isSupportedVersion(byte version) {
+        return version == 1 || version == VERSION;
+    }
 
     /**
      * 协议头固定长度: magic(2) + version(1) + msgType(1) + serType(1) + bodyLength(4) = 9

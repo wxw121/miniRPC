@@ -12,5 +12,6 @@ public enum RpcErrorCode {
     UNAUTHORIZED,
     SERIALIZATION_ERROR,
     INVALID_REQUEST,
+    CANCELLED,
     INTERNAL
 }

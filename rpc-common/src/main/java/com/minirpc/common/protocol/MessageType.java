@@ -18,7 +18,12 @@ public enum MessageType {
     /**
      * 心跳消息
      */
-    HEARTBEAT((byte) 3);
+    HEARTBEAT((byte) 3),
+
+    /**
+     * 请求取消控制帧
+     */
+    CANCEL((byte) 4);
 
     private final byte code;
 

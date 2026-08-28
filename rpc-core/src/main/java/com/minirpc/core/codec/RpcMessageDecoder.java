@@ -3,6 +3,7 @@ package com.minirpc.core.codec;
 import com.minirpc.common.exception.RpcException;
 import com.minirpc.common.protocol.MessageType;
 import com.minirpc.common.protocol.RpcMessage;
+import com.minirpc.common.protocol.RpcCancellation;
 import com.minirpc.common.protocol.RpcRequest;
 import com.minirpc.common.protocol.RpcResponse;
 import com.minirpc.common.protocol.SerializerType;
@@ -52,9 +53,9 @@ public class RpcMessageDecoder extends ByteToMessageDecoder {
 
         // 2. 读取并校验版本号 (1 byte)
         byte version = in.readByte();
-        if (version != RpcMessage.VERSION) {
+        if (!RpcMessage.isSupportedVersion(version)) {
             in.resetReaderIndex();
-            throw new RpcException("Unsupported protocol version: " + version + ", expected: " + RpcMessage.VERSION);
+            throw new RpcException("Unsupported protocol version: " + version);
         }
 
         // 3. 读取消息类型 (1 byte)
@@ -92,6 +93,8 @@ public class RpcMessageDecoder extends ByteToMessageDecoder {
                 data = serializer.deserialize(bodyBytes, RpcRequest.class);
             } else if (messageType == MessageType.RESPONSE) {
                 data = serializer.deserialize(bodyBytes, RpcResponse.class);
+            } else if (messageType == MessageType.CANCEL) {
+                data = serializer.deserialize(bodyBytes, RpcCancellation.class);
             }
         }
 
