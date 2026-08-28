@@ -294,8 +294,8 @@ public class RpcClientProxy implements InvocationHandler {
         try {
             ClusterStrategy strategy = retryable ? failoverStrategy : failfastStrategy;
             response = filterChain.execute(request, req -> strategy.invoke(req, () -> {
-                req.getContext().putAttachment("retryAttempt", Integer.toString(attempts.getAndIncrement()));
-                return doInvoke(req);
+                RpcRequest attemptRequest = copyForAttempt(req, attempts.getAndIncrement());
+                return doInvoke(attemptRequest);
             }));
         } catch (Exception e) {
             circuitBreaker.recordFailure();
@@ -375,6 +375,19 @@ public class RpcClientProxy implements InvocationHandler {
      * <p>
      * 重试时自动排除上次失败的节点
      */
+    private RpcRequest copyForAttempt(RpcRequest request, int attempt) {
+        RpcRequest copy = new RpcRequest();
+        copy.setRequestId(request.getRequestId());
+        copy.setInterfaceName(request.getInterfaceName());
+        copy.setVersion(request.getVersion());
+        copy.setGroup(request.getGroup());
+        copy.setMethodName(request.getMethodName());
+        copy.setParameterTypeNames(request.getParameterTypeNames());
+        copy.setParameters(request.getParameters());
+        RpcContext context = request.getContext() == null ? new RpcContext() : request.getContext();
+        copy.setContext(context.withRetryAttempt(attempt));
+        return copy;
+    }
     private RpcResponse doInvoke(RpcRequest request) {
         String targetHost;
         int targetPort;

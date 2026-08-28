@@ -211,6 +211,9 @@ public class NettyClient {
             return CompletableFuture.failedFuture(
                     new RpcException(RpcErrorCode.DEADLINE_EXCEEDED, "RPC deadline already exceeded"));
         }
+        if (request.getContext() != null) {
+            request.getContext().seal();
+        }
         // 先注册 Future（保证无论后续哪个环节失败，都能被清理）
         CompletableFuture<RpcResponse> future = RequestFutureHolder.register(request.getRequestId(), remainingTimeoutMs);
         AtomicReference<Channel> requestChannel = new AtomicReference<>();

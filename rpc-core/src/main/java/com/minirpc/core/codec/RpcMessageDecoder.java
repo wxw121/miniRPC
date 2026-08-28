@@ -90,7 +90,11 @@ public class RpcMessageDecoder extends ByteToMessageDecoder {
         if (bodyLength > 0) {
             Serializer serializer = SerializerFactory.getNetworkSerializer(serializerType);
             if (messageType == MessageType.REQUEST) {
-                data = serializer.deserialize(bodyBytes, RpcRequest.class);
+                RpcRequest request = serializer.deserialize(bodyBytes, RpcRequest.class);
+                if (request.getContext() != null) {
+                    request.getContext().seal();
+                }
+                data = request;
             } else if (messageType == MessageType.RESPONSE) {
                 data = serializer.deserialize(bodyBytes, RpcResponse.class);
             } else if (messageType == MessageType.CANCEL) {
