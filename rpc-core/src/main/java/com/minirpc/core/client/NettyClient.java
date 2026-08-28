@@ -278,6 +278,10 @@ public class NettyClient {
     /**
      * 关闭客户端（优雅关闭：等待连接池中的连接释放）
      */
+    public int getActiveConnectionCount() {
+        return poolCache.values().stream().mapToInt(ChannelPool::getActiveCount).sum();
+    }
+
     public void shutdown() {
         // 关闭所有连接池
         poolCache.values().forEach(ChannelPool::close);

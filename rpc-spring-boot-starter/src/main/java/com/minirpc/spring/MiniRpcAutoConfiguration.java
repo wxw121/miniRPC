@@ -127,6 +127,15 @@ public class MiniRpcAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnClass(MeterRegistry.class)
+    @ConditionalOnBean({MeterRegistry.class, RpcClient.class})
+    @ConditionalOnProperty(prefix = "minirpc.observability", name = "micrometer-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnMissingBean(MiniRpcConnectionPoolMetrics.class)
+    public MiniRpcConnectionPoolMetrics miniRpcConnectionPoolMetrics(MeterRegistry meterRegistry, RpcClient rpcClient) {
+        return new MiniRpcConnectionPoolMetrics(meterRegistry, rpcClient);
+    }
+
+    @Bean
     @ConditionalOnClass(name = "io.opentelemetry.api.OpenTelemetry")
     @ConditionalOnMissingBean(MiniRpcOpenTelemetryListener.class)
     @ConditionalOnProperty(prefix = "minirpc.observability", name = "opentelemetry-enabled", havingValue = "true")

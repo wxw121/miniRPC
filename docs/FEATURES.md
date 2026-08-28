@@ -199,7 +199,7 @@ minirpc:
 ```
 ## 15. 可靠性、可观测性与传输安全
 
-**调用事件与指标**：核心通过 `RpcInvocationListener` 发布每次客户端/服务端调用尝试。Starter 可选地记录 `minirpc.rpc.calls`、`minirpc.rpc.duration`、`minirpc.rpc.retries` 与 `minirpc.rpc.timeouts`；固定低基数标签为 `side`、`service`、`outcome`、`error_code`，不会把请求 ID、trace ID、端点、参数或响应体写入标签。显式开启 OpenTelemetry 时，每次尝试创建 `minirpc.rpc` span，写入 `rpc.side`、`rpc.service`、`rpc.retry_attempt`、`rpc.error_code` 及关联属性 `rpc.trace_id`、`rpc.target_endpoint`；业务参数、响应体和凭据不导出。
+**调用事件与指标**：核心通过 `RpcInvocationListener` 发布每次客户端/服务端调用尝试。Starter 可选地记录 `minirpc.rpc.calls`、`minirpc.rpc.duration`、`minirpc.rpc.retries`、`minirpc.rpc.timeouts`、熔断/业务执行器拒绝计数器和 `minirpc.rpc.connection_pool.active` Gauge；固定低基数标签为 `side`、`service`、`outcome`、`error_code`，不会把请求 ID、trace ID、端点、参数或响应体写入标签。显式开启 OpenTelemetry 时，每次尝试创建 `minirpc.rpc` span，写入 `rpc.side`、`rpc.service`、`rpc.retry_attempt`、`rpc.error_code` 及关联属性 `rpc.trace_id`、`rpc.target_endpoint`；业务参数、响应体和凭据不导出。
 
 **重试治理**：仅 `@RpcIdempotent` 方法可 failover，且只针对 `UNAVAILABLE`、`OVERLOADED`。重试预算、指数退避上限和绝对 deadline 共同限制后续尝试；deadline 已耗尽不会启动新请求。客户端端点失败会临时摘除，恢复期只允许一个探测请求。
 

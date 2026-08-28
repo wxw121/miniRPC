@@ -33,5 +33,14 @@ public final class MiniRpcMeterRegistryListener implements RpcInvocationListener
         if (event.errorCode() == com.minirpc.common.protocol.RpcErrorCode.DEADLINE_EXCEEDED) {
             Counter.builder("minirpc.rpc.timeouts").tags(operationTags).register(meterRegistry).increment();
         }
+        String rejectionReason = event.attributes().get("rejection_reason");
+        if ("circuit_breaker".equals(rejectionReason)) {
+            Counter.builder("minirpc.rpc.circuit_breaker.rejections").tags(operationTags)
+                    .register(meterRegistry).increment();
+        }
+        if ("business_executor".equals(rejectionReason)) {
+            Counter.builder("minirpc.rpc.business_executor.rejections").tags(operationTags)
+                    .register(meterRegistry).increment();
+        }
     }
 }

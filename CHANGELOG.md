@@ -11,7 +11,7 @@
 - 服务版本与分组路由，Spring `@RpcService` 自动注册，以及按请求超时预算清理 Future
 - `RpcErrorCode` 稳定错误类别与启动期 `RpcConfig` 参数校验
 - `@RpcIdempotent` 注解：只有显式幂等的方法才可执行 failover 重试
-- 无依赖调用事件 SPI，以及可选 Micrometer 调用计数/耗时/重试/超时指标、带 trace 与端点关联字段的 OpenTelemetry span 和 `minirpcReadiness` / `minirpcLiveness` 健康指标（含注册、连接、线程池快照）
+- 无依赖调用事件 SPI，以及可选 Micrometer 调用计数/耗时/重试/超时/熔断拒绝/线程池拒绝指标及连接池活跃 Gauge、带 trace 与端点关联字段的 OpenTelemetry span 和 `minirpcReadiness` / `minirpcLiveness` 健康指标（含注册、连接、线程池快照）
 - 按 deadline 限制的幂等 failover 重试、客户端本地端点摘除/恢复探测，以及稳定 `UNAVAILABLE` / `OVERLOADED` / `UNAUTHORIZED` 错误边界
 - 可选 TLS/mTLS Netty 传输与 Starter 配置模板；TLS 在协议编解码前握手，证书材料由部署环境提供
 

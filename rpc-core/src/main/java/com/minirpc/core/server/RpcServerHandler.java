@@ -195,7 +195,7 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcMessage> {
             shutdownManager.releaseRequest();
             RpcResponse overload = RpcResponse.fail(request.getRequestId(), RpcErrorCode.OVERLOADED,
                     "Server is overloaded or shutting down");
-            completeRequest(ctx, msg, request, overload, startedNanos);
+            completeRequest(ctx, msg, request, overload, startedNanos, Map.of("rejection_reason", "business_executor"));
         }
     }
 
@@ -273,6 +273,11 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcMessage> {
     }
     private void completeRequest(ChannelHandlerContext ctx, RpcMessage requestMessage, RpcRequest request,
                                  RpcResponse response, long startedNanos) {
+        completeRequest(ctx, requestMessage, request, response, startedNanos, Map.of());
+    }
+
+    private void completeRequest(ChannelHandlerContext ctx, RpcMessage requestMessage, RpcRequest request,
+                                 RpcResponse response, long startedNanos, Map<String, String> attributes) {
         returnResponse(ctx, requestMessage, response);
         RpcErrorCode errorCode = response.getStatus() == RpcResponse.STATUS_FAIL ? response.getErrorCode() : null;
         int attempt = 0;
@@ -287,7 +292,7 @@ public class RpcServerHandler extends SimpleChannelInboundHandler<RpcMessage> {
         RpcInvocationEvent event = new RpcInvocationEvent(
                 "server", request.getInterfaceName(), errorCode, System.nanoTime() - startedNanos, attempt,
                 String.valueOf(ctx.channel().localAddress()),
-                request.getContext() == null ? "" : request.getContext().getTraceId(), Map.of());
+                request.getContext() == null ? "" : request.getContext().getTraceId(), attributes);
         for (RpcInvocationListener listener : invocationListeners) {
             try {
                 listener.onComplete(event);

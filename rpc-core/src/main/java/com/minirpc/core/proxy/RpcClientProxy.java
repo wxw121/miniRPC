@@ -276,11 +276,13 @@ public class RpcClientProxy implements InvocationHandler {
     private Object invokeSync(RpcRequest request, boolean retryable) {
         // 限流检查
         if (!rateLimiter.tryAcquire()) {
+            emitRejectedInvocation(request, RpcErrorCode.OVERLOADED, "rate_limiter");
             throw new RpcException(RpcErrorCode.OVERLOADED, "Request rate limited, please try again later");
         }
 
         // 熔断器检查
         if (!circuitBreaker.allowRequest()) {
+            emitRejectedInvocation(request, RpcErrorCode.UNAVAILABLE, "circuit_breaker");
             throw new RpcException(RpcErrorCode.UNAVAILABLE, "Circuit breaker is OPEN, request rejected for: "
                     + request.getInterfaceName());
         }
@@ -324,12 +326,14 @@ public class RpcClientProxy implements InvocationHandler {
     private CompletableFuture<Object> invokeAsync(RpcRequest request) {
         // 限流检查
         if (!rateLimiter.tryAcquire()) {
+            emitRejectedInvocation(request, RpcErrorCode.OVERLOADED, "rate_limiter");
             return CompletableFuture.failedFuture(
                     new RpcException(RpcErrorCode.OVERLOADED, "Request rate limited"));
         }
 
         // 熔断器检查
         if (!circuitBreaker.allowRequest()) {
+            emitRejectedInvocation(request, RpcErrorCode.UNAVAILABLE, "circuit_breaker");
             return CompletableFuture.failedFuture(
                     new RpcException(RpcErrorCode.UNAVAILABLE, "Circuit breaker is OPEN"));
         }
@@ -471,7 +475,18 @@ public class RpcClientProxy implements InvocationHandler {
         }
     }
 
+    private void emitRejectedInvocation(RpcRequest request, RpcErrorCode errorCode, String reason) {
+        String targetEndpoint = directMode ? host + ":" + port : "";
+        emitInvocation(request, errorCode, System.nanoTime(), targetEndpoint,
+                Map.of("rejection_reason", reason));
+    }
+
     private void emitInvocation(RpcRequest request, RpcErrorCode errorCode, long startedNanos, String targetEndpoint) {
+        emitInvocation(request, errorCode, startedNanos, targetEndpoint, Map.of());
+    }
+
+    private void emitInvocation(RpcRequest request, RpcErrorCode errorCode, long startedNanos, String targetEndpoint,
+                                Map<String, String> attributes) {
         if (invocationListeners.isEmpty()) {
             return;
         }
@@ -485,7 +500,7 @@ public class RpcClientProxy implements InvocationHandler {
         }
         RpcInvocationEvent event = new RpcInvocationEvent("client", request.getInterfaceName(), errorCode,
                 System.nanoTime() - startedNanos, attempt, targetEndpoint,
-                request.getContext() == null ? "" : request.getContext().getTraceId(), Map.of());
+                request.getContext() == null ? "" : request.getContext().getTraceId(), attributes);
         for (RpcInvocationListener listener : invocationListeners) {
             try {
                 listener.onComplete(event);

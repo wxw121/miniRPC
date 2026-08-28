@@ -28,5 +28,11 @@ class MiniRpcMeterRegistryListenerTest {
         listener.onComplete(new RpcInvocationEvent("client", "example.EchoService", RpcErrorCode.DEADLINE_EXCEEDED,
                 1_000_000, 0, "10.0.0.8:9090", Map.of()));
         assertEquals(1.0, registry.get("minirpc.rpc.timeouts").counter().count());
+        listener.onComplete(new RpcInvocationEvent("client", "example.EchoService", RpcErrorCode.UNAVAILABLE,
+                1_000_000, 0, "", Map.of("rejection_reason", "circuit_breaker")));
+        listener.onComplete(new RpcInvocationEvent("server", "example.EchoService", RpcErrorCode.OVERLOADED,
+                1_000_000, 0, "", Map.of("rejection_reason", "business_executor")));
+        assertEquals(1.0, registry.get("minirpc.rpc.circuit_breaker.rejections").counter().count());
+        assertEquals(1.0, registry.get("minirpc.rpc.business_executor.rejections").counter().count());
     }
 }

@@ -187,6 +187,10 @@ public class RpcClient {
      * <p>
      * 等待 in-flight 请求完成后再关闭连接
      */
+    public int getActiveConnectionCount() {
+        return nettyClient.getActiveConnectionCount();
+    }
+
     public void shutdown() {
         log.info("Shutting down RPC Client gracefully...");
         // 等待进行中的请求完成（通过 RequestFutureHolder 的 TTL 机制保证最终清理）

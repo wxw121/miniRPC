@@ -19,7 +19,12 @@ class MiniRpcAutoConfigurationTest {
     @Test
     void configuresMicrometerInvocationListenerWhenMeterRegistryIsAvailable() {
         contextRunner.withBean(MeterRegistry.class, SimpleMeterRegistryConfiguration::meterRegistry)
-                .run(context -> assertThat(context).hasSingleBean(RpcInvocationListener.class));
+                .run(context -> {
+                    assertThat(context).hasSingleBean(RpcInvocationListener.class);
+                    assertThat(context).hasSingleBean(MiniRpcConnectionPoolMetrics.class);
+                    assertThat(context.getBean(MeterRegistry.class)
+                            .find("minirpc.rpc.connection_pool.active").gauge()).isNotNull();
+                });
     }
 
 
