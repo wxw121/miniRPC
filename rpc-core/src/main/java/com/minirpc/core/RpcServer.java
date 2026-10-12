@@ -33,10 +33,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * server.registerService(new HelloServiceImpl());
  * server.start();
  * </pre>
- * <p>
- * 面试考点：
- * - 优雅停机（ShutdownHook）
- * - 服务注册与暴露流程
  */
 public class RpcServer {
 
@@ -137,11 +133,6 @@ public class RpcServer {
      * ④ 等待 in-flight → 等待已接收的请求处理完毕（最多 30s）
      * ⑤ 关闭连接   → 关闭 Netty EventLoop + 业务线程池
      * </pre>
-     * <p>
-     * 面试考点：
-     * - 为什么不能直接关连接？（in-flight 请求会丢失，客户端收到 ConnectionReset）
-     * - 为什么摘流量后要等？（消费者有本地缓存，不会立即感知下线）
-     * - 生产环境 Dubbo 的停机顺序：摘流量 → 等待 → 关闭
      */
     public void stop() {
         if (!stopInitiated.compareAndSet(false, true)) {

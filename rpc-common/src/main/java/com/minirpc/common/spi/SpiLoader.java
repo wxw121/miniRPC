@@ -12,13 +12,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * 基于 Java ServiceLoader 实现组件的可插拔加载。
  * 通过 META-INF/services/ 下的配置文件声明实现类。
- * <p>
- * 面试考点：
- * - Java SPI vs Dubbo SPI 的区别
- *   Java SPI: ServiceLoader 一次性加载所有实现
- *   Dubbo SPI: 按 key 按需加载，支持 IOC/AOP
- * - SPI 的应用场景：序列化器、负载均衡、容错策略等可插拔组件
- * - 约定优于配置：通过接口名找到实现
  */
 public class SpiLoader {
 

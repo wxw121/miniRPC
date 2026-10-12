@@ -7,8 +7,6 @@ import java.util.Objects;
  * 服务实例
  * <p>
  * 描述一个注册到注册中心的服务节点信息。
- * <p>
- * 面试考点：服务注册与发现的数据模型设计
  */
 public class ServiceInstance implements Serializable {
 
@@ -46,10 +44,6 @@ public class ServiceInstance implements Serializable {
 
     /**
      * 服务启动时间戳（用于服务预热/慢启动）
-     * <p>
-     * 面试考点：新启动的节点 JIT 未编译、连接池未预热、缓存未加载，
-     * 如果立即承受全量流量容易导致超时/报错。
-     * 慢启动：权重随运行时间线性增长，预热期内逐步接入流量。
      */
     private long startTime = System.currentTimeMillis();
 

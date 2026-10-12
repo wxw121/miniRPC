@@ -16,11 +16,6 @@ import java.util.UUID;
  * 1. 如果当前线程 MDC 中已有 TraceId，则复用（说明是上游调用）
  * 2. 如果没有，则生成新的 TraceId（说明是调用链起点）
  * 3. 将 TraceId 设置到请求中，传递给下游
- * <p>
- * 面试考点：
- * - 分布式链路追踪原理（TraceId + SpanId）
- * - MDC（Mapped Diagnostic Context）的使用
- * - Zipkin / SkyWalking / Jaeger 的基本原理
  */
 public class TraceFilter implements RpcFilter {
 

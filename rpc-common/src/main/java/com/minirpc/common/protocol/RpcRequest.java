@@ -11,11 +11,6 @@ import java.io.Serializable;
  * - methodName: 调用的方法名
  * - parameterTypeNames: 方法参数类型名称数组（用 String 而非 Class，避免跨 ClassLoader 序列化问题）
  * - parameters: 方法参数值数组
- * <p>
- * 面试考点：
- * - 为什么用 String[] 而不是 Class<?>[]？
- *   Hessian2 序列化 Class 对象时，跨 ClassLoader 反序列化会失败。
- *   用类名字符串传输，服务端通过 Class.forName() 解析，更安全可靠。
  */
 public class RpcRequest implements Serializable {
 

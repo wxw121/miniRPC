@@ -9,11 +9,6 @@ import java.util.List;
  * <p>
  * 从多个服务实例中选择一个进行调用。
  * 内置 Random、RoundRobin、ConsistentHash 三种策略。
- * <p>
- * 面试考点：
- * - 常见负载均衡算法对比
- * - 一致性哈希原理（解决节点增减时的数据迁移问题）
- * - SPI 可插拔设计
  */
 public interface LoadBalancer {
 

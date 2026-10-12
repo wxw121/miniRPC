@@ -10,7 +10,7 @@
     <packaging>pom</packaging>
 
     <name>Mini RPC Framework</name>
-    <description>A mini RPC framework for learning and interview</description>
+    <description>A lightweight Java RPC framework based on Netty</description>
 
     <modules>
         <module>rpc-common</module>

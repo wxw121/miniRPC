@@ -13,8 +13,6 @@ import java.io.IOException;
  * <p>
  * 优点：跨语言、体积小、速度快、无需实现 Serializable 接口
  * 缺点：需要额外依赖
- * <p>
- * 面试考点：Hessian2 与 JDK 序列化的对比、为什么 Dubbo 默认使用 Hessian2
  */
 public class Hessian2Serializer implements Serializer {
 

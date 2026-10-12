@@ -30,12 +30,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *   /{serviceName}           -- 持久节点（服务目录）
  *     /{host:port}           -- 临时节点（服务实例，会话断开自动删除）
  * </pre>
- * <p>
- * 面试考点：
- * - ZK 临时节点（EPHEMERAL）：服务宕机会话断开后节点自动删除，实现故障自动摘除
- * - Watcher 机制：通过 CuratorCache 监听子节点变化
- * - CAP 理论：ZK 是 CP 系统（保证一致性，牺牲可用性）
- * - 指数退避重试：ExponentialBackoffRetry
  */
 public class ZookeeperRegistry implements Registry {
 

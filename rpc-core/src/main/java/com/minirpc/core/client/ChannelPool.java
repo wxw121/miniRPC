@@ -13,12 +13,6 @@ import java.util.concurrent.locks.ReentrantLock;
  * Channel 连接池
  * <p>
  * 每个地址维护多个 Channel 连接，发送时轮询选取。
- * <p>
- * 面试考点：
- * - 为什么需要连接池？单 Channel 在高并发下写入竞争导致 RT 抖动
- * - Dubbo 默认每个地址 1 个连接（因为 Netty 多路复用），但高吞吐场景需要多连接
- * - 轮询选取保证负载均匀
- * - 连接断开时自动剔除，获取时惰性重建
  */
 public class ChannelPool {
 

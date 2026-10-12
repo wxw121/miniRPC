@@ -16,11 +16,6 @@ import java.util.concurrent.atomic.AtomicLong;
  * - 总调用次数
  * - 成功次数 / 失败次数
  * - 总耗时（用于计算平均 RT）
- * <p>
- * 面试考点：
- * - 监控指标设计（QPS、RT、成功率、P99）
- * - 无锁计数（AtomicLong）
- * - 滑动窗口统计（进阶）
  */
 public class MetricsFilter implements RpcFilter {
 

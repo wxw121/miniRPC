@@ -12,8 +12,6 @@ import org.slf4j.LoggerFactory;
  * RPC 客户端响应处理器
  * <p>
  * 处理服务端返回的 RpcResponse，通过 requestId 匹配对应的 CompletableFuture 并完成回调。
- * <p>
- * 面试考点：请求-响应匹配机制、CompletableFuture 异步回调
  */
 public class RpcClientHandler extends SimpleChannelInboundHandler<RpcMessage> {
 

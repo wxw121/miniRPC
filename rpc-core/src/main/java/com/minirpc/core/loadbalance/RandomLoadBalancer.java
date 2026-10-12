@@ -10,17 +10,6 @@ import java.util.concurrent.ThreadLocalRandom;
  * <p>
  * 根据服务实例的有效权重进行加权随机选择。
  * 有效权重 = 配置权重 × 预热进度（新节点权重从 1 线性增长到配置值）
- * <p>
- * 算法原理：
- * 1. 计算每个实例的预热有效权重 getWarmupWeight()
- * 2. 求总权重 totalWeight
- * 3. 生成 [0, totalWeight) 的随机数
- * 4. 依次减去每个实例的有效权重，直到随机数 < 0
- * <p>
- * 面试考点：
- * - 服务预热/慢启动的必要性（JIT、连接池、缓存预热）
- * - Dubbo 的 warmup 参数设计（默认 10 分钟）
- * - 权重动态调整 vs 静态权重
  */
 public class RandomLoadBalancer implements LoadBalancer {
 

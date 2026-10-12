@@ -47,11 +47,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>
  * 完整调用链路（V3.0/V4.0）：
  * 限流检查 → FilterChain（Trace + Metrics）→ 熔断器判断 → 容错策略 → 实际 RPC 调用
- * <p>
- * 面试考点：
- * - JDK 动态代理原理（Proxy + InvocationHandler）
- * - 责任链模式（FilterChain）
- * - 熔断器、限流器、容错策略的串联设计
  */
 public class RpcClientProxy implements InvocationHandler {
 
@@ -90,10 +85,6 @@ public class RpcClientProxy implements InvocationHandler {
 
     /**
      * 记录当前请求重试过程中失败的节点地址
-     * <p>
-     * 面试考点：Failover 重试时为什么要换节点？
-     * - 重试同一个故障节点没有意义，大概率还会失败
-     * - 排除故障节点后重新负载均衡，提高重试成功率
      */
     private static final ThreadLocal<Set<String>> FAILED_NODES = ThreadLocal.withInitial(HashSet::new);
 
@@ -318,10 +309,6 @@ public class RpcClientProxy implements InvocationHandler {
 
     /**
      * 异步调用：返回 CompletableFuture，不阻塞当前线程
-     * <p>
-     * 面试考点：
-     * - 异步非阻塞：调用方不需要等待结果，可以继续做其他事
-     * - 并行调用多个服务，提升吐量
      */
     private CompletableFuture<Object> invokeAsync(RpcRequest request) {
         // 限流检查

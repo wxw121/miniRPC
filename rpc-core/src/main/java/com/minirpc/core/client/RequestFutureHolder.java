@@ -21,12 +21,6 @@ import java.util.concurrent.TimeUnit;
  * 内存泄漏防护：
  * - 定时清理超时的 Future（防止服务端永不响应导致 Future 永远留在 Map 中）
  * - 注册时记录时间戳，超过 TTL 的 Future 会被强制完成并移除
- * <p>
- * 面试考点：
- * - 为什么用 ConcurrentHashMap：多线程环境下保证线程安全
- * - 为什么用 CompletableFuture：支持异步非阻塞等待，可设置超时
- * - 请求-响应匹配原理：通过唯一 requestId 关联请求和响应
- * - 内存泄漏防护：定时清理机制
  */
 public class RequestFutureHolder {
 

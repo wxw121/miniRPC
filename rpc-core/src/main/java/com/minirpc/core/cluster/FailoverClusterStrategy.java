@@ -15,11 +15,6 @@ import java.util.function.Supplier;
  * <p>
  * 调用失败时自动重试其他节点，使用指数退避避免重试风暴。
  * 适用于读操作或幂等写操作。
- * <p>
- * 面试考点：
- * - 指数退避算法：delay = baseDelay * 2^retryCount
- * - 重试风暴问题：大量客户端同时重试导致服务端雪崩
- * - 幂等性：非幂等操作不能随意重试
  */
 public class FailoverClusterStrategy implements ClusterStrategy {
 

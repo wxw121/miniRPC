@@ -17,11 +17,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * 1. 首次查询时从注册中心拉取服务列表并缓存
  * 2. 订阅服务变更，实时更新本地缓存
  * 3. 注册中心宕机时，仍可使用本地缓存进行调用（降级策略）
- * <p>
- * 面试考点：
- * - 本地缓存的必要性（减少注册中心压力、容灾）
- * - 缓存一致性（通过 Watcher 订阅保证最终一致性）
- * - 降级策略（注册中心不可用时的容错）
  */
 public class ServiceDiscovery {
 

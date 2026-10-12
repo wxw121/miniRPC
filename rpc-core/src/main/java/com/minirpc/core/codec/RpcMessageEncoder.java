@@ -24,8 +24,6 @@ import org.slf4j.LoggerFactory;
  * | 2bytes | 1byte  | 1byte   | 1byte     | 4bytes  | N    |
  * +--------+--------+---------+-----------+---------+------+
  * </pre>
- * <p>
- * 面试考点：Netty 编解码器、ByteBuf 操作、协议设计
  */
 public class RpcMessageEncoder extends MessageToByteEncoder<RpcMessage> {
 

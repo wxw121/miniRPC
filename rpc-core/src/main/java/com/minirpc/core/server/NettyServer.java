@@ -41,8 +41,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>
  * ChannelPipeline 设计：
  * LengthFieldBasedFrameDecoder -> RpcMessageDecoder -> RpcMessageEncoder -> RpcServerHandler
- * <p>
- * 面试考点：Netty Reactor 模型、ChannelPipeline、NIO 事件驱动
  */
 public class NettyServer {
 
@@ -71,10 +69,6 @@ public class NettyServer {
 
     /**
      * 业务线程池：将反射调用从 Netty IO 线程剥离
-     * <p>
-     * 面试考点：为什么需要业务线程池？
-     * - Netty Worker 线程负责 IO 读写，如果被业务逻辑阻塞，所有连接都会卡死
-     * - Dubbo 的做法：IO 线程只做编解码，业务逻辑提交到独立线程池
      */
     private SslContext sslContext;
     private ThreadPoolExecutor businessExecutor;

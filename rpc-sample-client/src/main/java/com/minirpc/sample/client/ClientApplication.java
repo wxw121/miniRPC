@@ -38,7 +38,8 @@ public class ClientApplication {
 
         try {
             HelloService helloService = client.createProxy(HelloService.class);
-            String greeting = helloService.sayHello("Interview");
+            // 调用远程方法（对调用者透明，就像调用本地方法一样）
+            String greeting = helloService.sayHello("World");
             System.out.println("sayHello result: " + greeting);
             int sum = helloService.add(3, 5);
             System.out.println("add result: 3 + 5 = " + sum);

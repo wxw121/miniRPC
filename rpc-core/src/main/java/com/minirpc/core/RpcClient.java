@@ -133,8 +133,6 @@ public class RpcClient {
      * CompletableFuture&lt;String&gt; future = asyncProxy.sayHello("World");
      * future.thenAccept(result -&gt; System.out.println(result));
      * </pre>
-     * <p>
-     * 面试考点：异步非阻塞调用，可并行调用多个服务提升吐量
      */
     public <T> T createAsyncProxy(Class<T> interfaceClass) {
         RpcClientProxy proxy;
@@ -157,10 +155,6 @@ public class RpcClient {
      * GenericService generic = client.createGenericProxy("com.example.EchoService");
      * Object result = generic.$invoke("echo", new String[]{"java.lang.String"}, new Object[]{"hello"});
      * </pre>
-     * <p>
-     * 面试考点：网关/测试平台不依赖接口 JAR 动态调用任意服务
-     *
-     * @param interfaceName 服务接口全限定名
      */
     public GenericService createGenericProxy(String interfaceName) {
         RpcClientProxy proxy;

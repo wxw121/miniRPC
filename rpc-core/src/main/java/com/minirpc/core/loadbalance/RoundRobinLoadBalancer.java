@@ -10,8 +10,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>
  * 按顺序依次选择服务实例，保证每个实例被均匀调用。
  * 使用 AtomicInteger 保证多线程安全。
- * <p>
- * 面试考点：AtomicInteger CAS 无锁操作、取模运算防溢出
  */
 public class RoundRobinLoadBalancer implements LoadBalancer {
 

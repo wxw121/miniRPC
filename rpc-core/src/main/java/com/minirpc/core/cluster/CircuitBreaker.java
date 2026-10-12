@@ -14,12 +14,6 @@ import java.util.concurrent.atomic.AtomicReference;
  * - CLOSED（关闭）：正常状态，请求正常通过。失败次数达到阈值时切换到 OPEN。
  * - OPEN（打开）：熔断状态，所有请求直接失败（快速失败）。经过超时时间后切换到 HALF_OPEN。
  * - HALF_OPEN（半开）：试探状态，允许少量请求通过。成功则恢复 CLOSED，失败则回到 OPEN。
- * <p>
- * 面试考点：
- * - 熔断器原理（类比保险丝）
- * - 雪崩效应与熔断的关系
- * - 状态机设计
- * - Hystrix / Sentinel / Resilience4j 的熔断实现
  */
 public class CircuitBreaker {
 

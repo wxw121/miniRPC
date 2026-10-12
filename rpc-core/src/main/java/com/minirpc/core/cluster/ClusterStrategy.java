@@ -10,11 +10,6 @@ import java.util.function.Supplier;
  * <p>
  * 定义 RPC 调用失败时的容错处理策略。
  * 内置 Failover（失败重试）、Failfast（快速失败）、Failback（延迟恢复）三种策略。
- * <p>
- * 面试考点：
- * - 分布式系统容错模式对比
- * - 策略模式 + SPI 扩展
- * - 重试风暴问题与指数退避
  */
 public interface ClusterStrategy {
 

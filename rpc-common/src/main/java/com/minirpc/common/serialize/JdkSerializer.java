@@ -9,8 +9,6 @@ import java.io.*;
  * <p>
  * 优点：无需额外依赖，Java 原生支持
  * 缺点：序列化后体积大、性能较差、要求对象实现 Serializable 接口
- * <p>
- * 面试考点：Java 序列化机制、transient 关键字、serialVersionUID 的作用
  */
 public class JdkSerializer implements Serializer {
 

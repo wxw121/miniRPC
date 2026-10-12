@@ -13,10 +13,6 @@ import java.util.function.Supplier;
  * <p>
  * 调用失败时立即抛出异常，不进行重试。
  * 适用于非幂等写操作（如新增订单），避免重复执行。
- * <p>
- * 面试考点：
- * - 幂等性概念：同一操作执行多次与执行一次效果相同
- * - 为什么写操作不能用 Failover
  */
 public class FailfastClusterStrategy implements ClusterStrategy {
 

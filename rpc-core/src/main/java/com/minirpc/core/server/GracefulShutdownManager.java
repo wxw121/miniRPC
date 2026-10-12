@@ -22,12 +22,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  * ④ awaitInFlight(timeout)   → 等待已接收的请求处理完毕
  * ⑤ close Netty + executor   → 关闭连接和线程池
  * </pre>
- * <p>
- * 面试考点：
- * - 为什么摘流量后还要等？（消费者有本地缓存，不会立即感知节点下线）
- * - 为什么要拒绝新请求？（避免关闭过程中接收的请求丢失）
- * - in-flight 计数器用 AtomicInteger 保证并发安全
- * - CountDownLatch 用于高效等待（比轮询 sleep 更优雅）
  */
 public class GracefulShutdownManager {
 

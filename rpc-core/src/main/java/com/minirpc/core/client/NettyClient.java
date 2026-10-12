@@ -39,12 +39,6 @@ import java.util.concurrent.TimeoutException;
  * <p>
  * 负责与服务端建立连接、发送 RPC 请求、接收响应。
  * 支持连接复用：同一地址的连接会被缓存复用。
- * <p>
- * 面试考点：
- * - Netty 客户端 Bootstrap 配置
- * - 连接复用与 Channel 管理
- * - 同步/异步调用实现
- * - CompletableFuture 超时控制
  */
 public class NettyClient {
 
@@ -67,11 +61,6 @@ public class NettyClient {
 
     /**
      * 连接池缓存：address -> ChannelPool
-     * <p>
-     * 面试考点：为什么用连接池而不是单连接？
-     * - 单 Channel 在高并发下写入竞争导致 RT 抖动
-     * - 多连接轮询选取，分散写入压力
-     * - 某个连接断开时自动剔除并重建，不影响其他请求
      */
     private final Map<String, ChannelPool> poolCache = new ConcurrentHashMap<>();
 

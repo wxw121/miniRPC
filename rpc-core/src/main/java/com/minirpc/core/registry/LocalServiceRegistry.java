@@ -12,11 +12,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * 维护 接口名 -> 服务实现实例 的映射关系。
  * 服务端启动时，将 @RpcService 标注的实现类注册到此表中。
  * 收到 RPC 请求时，根据接口名从此表中查找对应的实现。
- * <p>
- * 面试考点：
- * - ConcurrentHashMap 保证线程安全
- * - 服务注册与发现的基本概念
- * - V2.0 将扩展为分布式注册中心（ZooKeeper/Nacos）
  */
 public class LocalServiceRegistry {
 

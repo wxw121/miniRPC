@@ -22,8 +22,6 @@ import java.util.List;
  * <p>
  * 将网络字节流解码为 RpcMessage 对象。
  * 配合 LengthFieldBasedFrameDecoder 使用，解决 TCP 粘包/拆包问题。
- * <p>
- * 面试考点：TCP 粘包拆包解决方案、Netty 解码器链
  */
 public class RpcMessageDecoder extends ByteToMessageDecoder {
 

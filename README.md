@@ -1,6 +1,6 @@
 # Mini RPC Framework
 
-> 一个面向学习与面试的轻量级 Java RPC 框架，基于 Netty 实现高性能网络通信，麻雀虽小五脏俱全。
+> 一个基于 Netty 的轻量级 Java RPC 框架，提供网络通信、服务发现、负载均衡和容错能力。
 
 [![Java](https://img.shields.io/badge/Java-17-orange)]()
 [![Netty](https://img.shields.io/badge/Netty-4.1.108-blue)]()
@@ -8,13 +8,7 @@
 
 ## ✨ 项目简介
 
-MiniRPC 是一个从零实现的 RPC 框架，覆盖了一个生产级 RPC 框架的核心链路：**网络通信 → 协议编解码 → 序列化 → 服务注册发现 → 负载均衡 → 容错 → 动态代理**。
-
-项目以「面试可讲、源码可读」为目标，每个核心类都附带详细的中文注释与面试考点说明，适合：
-
-- 想深入理解 RPC 原理的 Java 开发者
-- 准备分布式系统/中间件面试的同学
-- 想阅读简洁中间件源码的学习者
+MiniRPC 覆盖 RPC 调用的核心链路：**网络通信 → 协议编解码 → 序列化 → 服务注册发现 → 负载均衡 → 容错 → 动态代理**。
 
 ## 🚀 核心特性
 
@@ -84,7 +78,7 @@ mvn compile exec:java -pl rpc-sample-client \
 
 预期输出：
 ```
-sayHello result: Hello, Interview!
+sayHello result: Hello, World!
 add result: 3 + 5 = 8
 === RPC Call Success! ===
 ```

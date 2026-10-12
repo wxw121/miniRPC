@@ -7,11 +7,6 @@ import java.util.List;
  * <p>
  * 定义服务注册与发现的统一抽象，支持可插拔的注册中心实现。
  * 内置 ZooKeeper 实现，后续可扩展 Nacos、Etcd、Consul 等。
- * <p>
- * 面试考点：
- * - SPI 扩展机制
- * - 服务注册与发现的核心流程
- * - CAP 理论在注册中心选型中的应用（ZK=CP, Nacos=AP/CP可切换）
  */
 public interface Registry {
 

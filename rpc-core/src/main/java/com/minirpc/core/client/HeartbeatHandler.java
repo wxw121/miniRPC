@@ -15,11 +15,6 @@ import org.slf4j.LoggerFactory;
  * <p>
  * 当写空闲（一段时间没有发送数据）时，自动发送心跳包给服务端，
  * 保持连接活跃，防止被服务端误判为死连接而关闭。
- * <p>
- * 面试考点：
- * - IdleStateHandler 的三种空闲检测（读空闲、写空闲、读写空闲）
- * - 心跳机制的设计（谁发心跳、频率、超时判断）
- * - TCP KeepAlive vs 应用层心跳的区别
  */
 public class HeartbeatHandler extends ChannelDuplexHandler {
 

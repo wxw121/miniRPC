@@ -16,10 +16,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>
  * 启动真实的 Server + Client，完成完整的 RPC 调用链路验证：
  * 客户端代理 → 限流 → 熔断 → FilterChain → 序列化 → Netty传输 → 反序列化 → 业务线程池 → 反射调用 → 响应返回
- * <p>
- * 面试考点：
- * - 集成测试 vs 单元测试的区别
- * - 如何验证分布式系统的端到端正确性
  */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class RpcIntegrationTest {

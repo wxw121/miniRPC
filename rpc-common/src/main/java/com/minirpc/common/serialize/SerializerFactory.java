@@ -10,8 +10,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * 根据 SerializerType 获取对应的 Serializer 实现。
  * 使用单例模式缓存已创建的序列化器实例，避免重复创建。
- * <p>
- * 面试考点：工厂模式、单例模式、ConcurrentHashMap 线程安全
  */
 public class SerializerFactory {
 

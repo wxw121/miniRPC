@@ -8,11 +8,6 @@ import com.minirpc.common.protocol.RpcResponse;
  * <p>
  * 类似 Dubbo 的 Filter 机制，支持在 RPC 调用前后进行拦截和增强。
  * 典型用途：日志记录、链路追踪、权限校验、调用统计、限流等。
- * <p>
- * 面试考点：
- * - 责任链设计模式
- * - AOP 思想在 RPC 框架中的应用
- * - Dubbo Filter SPI 的设计
  */
 public interface RpcFilter {
 

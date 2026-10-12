@@ -36,11 +36,6 @@ import java.util.concurrent.RejectedExecutionException;
  * 2. 将业务逻辑提交到独立业务线程池执行（避免阻塞 Netty IO 线程）
  * 3. 通过反射调用目标方法
  * 4. 将结果封装为 RpcResponse 返回
- * <p>
- * 面试考点：
- * - 为什么不能在 Netty IO 线程执行业务逻辑？（阻塞 Worker 线程导致所有连接卡死）
- * - IO 线程与业务线程分离（Reactor 模型的最佳实践）
- * - Dubbo 的线程模型：IO 线程只负责编解码，业务线程池负责反射调用
  */
 public class RpcServerHandler extends SimpleChannelInboundHandler<RpcMessage> {
 

@@ -7,8 +7,6 @@ import java.lang.annotation.*;
  * <p>
  * 标注在服务实现类上，表示该类是一个 RPC 服务提供者。
  * 框架启动时会扫描此注解，将服务注册到本地注册表并暴露端口。
- * <p>
- * 面试考点：自定义注解、注解的 RetentionPolicy 和 Target
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

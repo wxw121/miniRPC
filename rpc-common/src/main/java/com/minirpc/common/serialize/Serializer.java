@@ -5,8 +5,6 @@ package com.minirpc.common.serialize;
  * <p>
  * 定义序列化/反序列化的统一抽象，支持可插拔的序列化实现。
  * 内置 JDK 原生序列化和 Hessian2 两种实现，后续可扩展 Protobuf、Kryo 等。
- * <p>
- * 面试考点：SPI（Service Provider Interface）机制、策略模式
  */
 public interface Serializer {
 

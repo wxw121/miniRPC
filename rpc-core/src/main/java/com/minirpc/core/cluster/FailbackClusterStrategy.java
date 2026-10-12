@@ -13,11 +13,6 @@ import java.util.function.Supplier;
  * <p>
  * 调用失败时记录请求，后台定时重试。
  * 适用于对实时性要求不高、最终一致性即可的场景（如消息通知、日志记录）。
- * <p>
- * 面试考点：
- * - 最终一致性 vs 强一致性
- * - 后台重试队列设计
- * - ScheduledExecutorService 定时任务
  */
 public class FailbackClusterStrategy implements ClusterStrategy {
 
