@@ -122,6 +122,35 @@ HelloService service = client.createProxy(HelloService.class);
 String result = service.sayHello("World"); // 像本地方法一样调用
 ```
 
+在创建代理前可调用 `client.setClusterStrategy(new FailbackClusterStrategy(1, 3))`：首次失败仍返回错误，后台在原请求 deadline 内最多补偿 3 次，每次间隔 1 秒。自定义策略只用于 `@RpcIdempotent` 同步方法；未配置时仍使用 Failover，非幂等、异步和泛化调用不启用补偿。`client.shutdown()` 会关闭策略并取消待执行的补偿任务，策略应由一个客户端独占。
+
+### Spring Boot 引用与扩展
+
+服务引用统一使用 `com.minirpc.core.annotation.RpcReference`，Starter 负责扫描和注入。注解支持 `version`、`group`、`timeout`；`timeout` 默认 `0`，沿用 `minirpc.client.request-timeout`，正数为该引用独立的毫秒预算（包含重试），负数在启动时拒绝。编程式入口为 `client.createProxy(Service.class, version, group, timeoutMs)`。
+
+```java
+import com.minirpc.core.annotation.RpcReference;
+
+@RpcReference(version = "1.0.0", group = "default", timeout = 3000)
+private HelloService helloService;
+
+@Bean
+ClusterStrategy rpcClusterStrategy() {
+    return new FailbackClusterStrategy(1, 2); // 可选，按秒延迟补偿
+}
+
+@Bean
+RpcAuthenticator rpcAuthenticator() {
+    return request -> credentialsAreValid(request)
+            ? RpcAuthenticator.AuthenticationResult.allow()
+            : RpcAuthenticator.AuthenticationResult.deny("invalid credentials");
+}
+```
+
+以上扩展 Bean 会自动安装到 Starter 创建的客户端和服务端；`credentialsAreValid` 由应用实现。没有鉴权 Bean 时保持默认放行；同类型扩展有多个 Bean 时需用 `@Primary` 明确选择，否则启动失败。自定义 `RpcServer` 或 `RpcClient` Bean 的配置由应用负责。
+
+SPI 扩展通过 `META-INF/services/` 声明实现类：序列化器配置文件名为 `com.minirpc.common.serialize.Serializer`，实现需提供 `getType()`，自定义实现优先于同类型内置实现，同一类型的多个自定义实现会报错。扩展必须保持对应 `SerializerType` 的线格式兼容，网络仍拒绝 JDK 原生序列化。注册中心配置文件名为 `com.minirpc.registry.Registry`，设置 `minirpc.registry.type=spi` 后加载唯一的无参实现；缺失或多个实现会使启动失败，显式声明的 `Registry` Bean 优先。
+
 ### 异步调用
 
 ```java
@@ -158,6 +187,7 @@ Micrometer 指标为 `minirpc.rpc.calls`、`minirpc.rpc.duration`、`minirpc.rpc
 | [协议规范](docs/PROTOCOL.md) | 自定义协议字节布局 |
 | [核心特性](docs/FEATURES.md) | 各项能力的设计与实现要点 |
 | [更新日志](CHANGELOG.md) | 版本迭代记录 |
+| [性能基准](docs/BENCHMARK.md) | 可复现的本机性能数据与边界 |
 
 ## 🛠️ 技术栈
 

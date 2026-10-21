@@ -1,10 +1,11 @@
 package com.minirpc.spring;
 
 import com.minirpc.core.RpcClient;
-import com.minirpc.spring.annotation.RpcReference;
+import com.minirpc.core.annotation.RpcReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.BeanCreationException;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 
 import java.lang.reflect.Field;
@@ -34,6 +35,12 @@ public class RpcReferenceBeanPostProcessor implements BeanPostProcessor {
                 continue;
             }
 
+            long timeout = annotation.timeout();
+            if (timeout < 0) {
+                throw new BeanCreationException(beanName,
+                        "@RpcReference timeout 不能为负数: " + field.getName());
+            }
+
             Class<?> serviceInterface = field.getType();
             if (!serviceInterface.isInterface()) {
                 log.warn("@RpcReference 只能标注在接口类型的字段上: {}.{}", bean.getClass().getSimpleName(), field.getName());
@@ -42,7 +49,7 @@ public class RpcReferenceBeanPostProcessor implements BeanPostProcessor {
 
             // 创建代理
             Object proxy = rpcClient.createProxy(serviceInterface,
-                    annotation.version(), annotation.group());
+                    annotation.version(), annotation.group(), timeout);
 
             // 注入
             field.setAccessible(true);

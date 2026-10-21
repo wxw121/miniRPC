@@ -23,6 +23,16 @@
 ### Fixed
 
 - 修复半开熔断器并发探测超额、客户端配置未生效、Starter 未自动发布服务和基准测试干扰默认测试套件的问题
+- Starter 识别 core 引用注解并应用独立超时，自动安装 `RpcAuthenticator` 和 `ClusterStrategy` Bean
+- 接通 Failback 后台补偿与客户端关闭流程，补齐错误类别、原 deadline、次数限制和跨线程失败节点隔离
+- 保留响应 Future 的明确错误类别，将实际连接/写入失败归为 `UNAVAILABLE`、编码失败归为 `SERIALIZATION_ERROR`，使传输故障可以进入重试策略
+- 序列化器工厂与 Starter 注册中心实际加载 SPI 扩展；清理未使用的序列号和字符串工具方法
+
+### Compatibility
+
+- 删除 Starter 中重复的 `com.minirpc.spring.annotation.RpcReference`，引用统一导入 `com.minirpc.core.annotation.RpcReference`
+- `@RpcReference.timeout` 默认值调整为 `0`（使用全局配置）；core 注解原默认值为 `5000`
+- 自定义 `Serializer` 实现需新增 `getType()`，声明兼容的现有 `SerializerType`
 
 ## [1.0.0] - 2026-07-22
 

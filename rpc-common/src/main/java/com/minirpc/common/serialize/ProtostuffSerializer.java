@@ -1,5 +1,6 @@
 package com.minirpc.common.serialize;
 
+import com.minirpc.common.protocol.SerializerType;
 import io.protostuff.LinkedBuffer;
 import io.protostuff.ProtostuffIOUtil;
 import io.protostuff.Schema;
@@ -16,6 +17,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * Schema 会被缓存，LinkedBuffer 按线程复用以减少分配。
  */
 public class ProtostuffSerializer implements Serializer {
+
+    @Override
+    public SerializerType getType() {
+        return SerializerType.PROTOSTUFF;
+    }
 
     /**
      * Schema 缓存：避免每次序列化都通过反射生成 Schema
@@ -44,11 +50,18 @@ public class ProtostuffSerializer implements Serializer {
         if (obj == null) {
             return new byte[0];
         }
+
         @SuppressWarnings("unchecked")
+        // 1. 确定正在序列化什么类型
         Class<Object> clazz = (Class<Object>) obj.getClass();
+
+        // 2. 获取这个类型的字段编码说明书
         Schema<Object> schema = getSchema(clazz);
+
+        // 3. 获取当前线程使用的临时字节缓冲区
         LinkedBuffer buffer = BUFFER_POOL.get();
         try {
+            // 4. 按照说明书读取字段，并编码成字节数组
             return ProtostuffIOUtil.toByteArray(obj, schema, buffer);
         } finally {
             buffer.clear();

@@ -2,29 +2,35 @@
 
 ## Goal
 
-Complete the request-lifecycle guarantees in `docs/EVOLUTION_DESIGN.md`: an async caller can cancel a queued remote invocation, and request metadata has an immutable, bounded wire representation.
+Complete the request-lifecycle design in `docs/EVOLUTION_DESIGN.md`: the Future returned directly by `NettyClient.sendAsync` can request cancellation of a queued remote invocation, and request contexts are sealed with bounded attachments. Implementation notes below reflect the current code as of 2026-10-17.
 
 ## Protocol
 
-`MessageType.CANCEL` carries a serializable `RpcCancellation` containing only `requestId`. It uses the existing frame layout and serializer. Version 2 is the current protocol version; the decoder accepts version 1 request/response/heartbeat frames for rolling server upgrades, but cancellation is available only between version-2 peers. A version-1 peer receiving a version-2 frame fails closed rather than misinterpreting a control frame.
+`MessageType.CANCEL` carries a serializable `RpcCancellation` containing only `requestId`. It uses the existing frame layout and serializer. Version 2 introduced cancellation and is the current outbound version. `isSupportedVersion` currently accepts 1 or 2; the encoder always writes 2. There is no version negotiation or response downgrade, so accepting an incoming version-1 frame does not establish full bidirectional compatibility with a version-1 endpoint. Both endpoints must understand the cancellation message to use that capability.
+
+The current decoder validates the version and message type independently. It does not reject the combination of version 1 and `CANCEL`; a strict per-version message-capability check is not implemented. See `docs/PROTOCOL.md` for the current wire fields and compatibility scope.
 
 The decoder maps `CANCEL` bodies only to `RpcCancellation`; encoder rejects a cancellation message with another body type. The control frame never reaches service lookup, authentication, or the business executor.
 
 ## Client lifecycle
 
-`NettyClient.sendAsync` owns a request's pending future and selected channel. Cancelling its returned future removes it from `RequestFutureHolder` immediately. If the request frame was accepted by the channel, the client writes one `CANCEL` frame on that same channel. Cancellation before request transmission prevents transmission. Timeout and ordinary completion never emit a cancellation frame.
+`NettyClient.sendAsync` owns a request's pending future and selected channel. Cancelling its returned future removes it from `RequestFutureHolder` immediately. If the request frame was submitted to an active channel, the client attempts to write at most one `CANCEL` frame on that same channel. It checks for cancellation before writing the request and again afterwards to handle a concurrent cancellation. Timeout and ordinary completion never emit a cancellation frame.
+
+This guarantee applies to the original Future returned by `NettyClient.sendAsync`. `RpcClientProxy.invokeAsync` returns a `thenApply` dependent Future and currently does not forward its cancellation to the original Future. The public async proxy therefore does not yet provide the same cancellation propagation guarantee.
 
 ## Server lifecycle
 
-`RpcServerHandler` places each accepted request into a concurrent pending-invocation map before calling `Executor.execute`. The map value tracks a `FutureTask` and a `started` flag. A `CANCEL` removes and cancels only a task whose flag is still false; it releases the graceful-shutdown in-flight count and emits a `CANCELLED` completion event without sending a normal response. A task that has started is left running and will complete normally. Duplicate or late cancellation frames are harmless no-ops.
+`RpcServerHandler` places each accepted request into a concurrent pending-invocation map before calling `Executor.execute`. The map value tracks a `FutureTask` and an atomic state: `QUEUED`, `RUNNING`, `CANCELLED`, or `COMPLETED`. Execution and cancellation compete to transition from `QUEUED`; only a queued task can be cancelled. Cancellation releases the graceful-shutdown in-flight count and emits a `CANCELLED` completion event without sending a normal response. A task that has started is left running. Duplicate or late cancellation frames are harmless no-ops.
+
+Cancelling a queued task removes its pending-map entry but does not explicitly remove the Runnable wrapper from the executor queue. The wrapper can remain queued until a worker takes it and observes that execution is no longer allowed; immediate queue-slot reclamation is not guaranteed.
 
 ## Context boundary
 
-`RpcContext` uses a builder/factory for normal construction and is sealed before every network send. Its exposed attachment map is unmodifiable. The allowed attachment keys are `retryAttempt` and `auth.token`; trace ID and idempotency key are first-class fields. Existing count, key-length, value-length, and total-size limits remain enforced. `withRetryAttempt(int)` returns a sealed copy, so retry state never mutates a request that may already be in flight. The decoder seals a deserialized context before it is delivered to the handler.
+`RpcContext` is constructed with its no-argument constructor and setters, then sealed before network transmission. Its exposed attachment map is an unmodifiable snapshot. The allowed attachment keys are `retryAttempt` and `auth.token`; trace ID and idempotency key are first-class fields. Existing count, key-length, value-length, and total attachment-length limits remain enforced. `withRetryAttempt(int)` returns a sealed copy, so retry state never mutates a request that may already be in flight. The local `sealed` flag is transient, and the decoder seals a deserialized context before it is delivered to the handler.
 
 ## Errors, observability, and compatibility
 
-`RpcErrorCode.CANCELLED` identifies a locally cancelled queued invocation in events; it is never retryable. Request IDs, trace IDs, credentials, arguments, and response data remain absent from metric tags and default string representations. The protocol document will describe the version-2 migration and explicit cancellation limitation for version-1 peers.
+`RpcErrorCode.CANCELLED` identifies a locally cancelled queued invocation in events; it is never retryable. Request IDs and trace IDs are not metric tags; default request/response string representations retain request IDs for correlation while omitting business arguments and response data. Context credentials are also omitted from those string representations. The protocol document describes version acceptance and the absence of negotiation and per-version message-capability enforcement.
 
 ## Verification
 
@@ -32,4 +38,4 @@ The decoder maps `CANCEL` bodies only to `RpcCancellation`; encoder rejects a ca
 - Client tests prove cancellation removes the pending Future and writes at most one control frame after a sent request.
 - Handler tests prove a queued invocation is never executed after cancellation, in-flight is released, and a started invocation is not interrupted.
 - Context tests prove unknown keys, mutation after sealing, oversized values, and mutable-map exposure are rejected.
-- The complete Maven reactor remains green.
+- These cancellation tests exercise `NettyClient` directly; they do not establish cancellation propagation from the dependent Future returned by the async proxy. Current test results require a fresh test run rather than a status claim in this design document.

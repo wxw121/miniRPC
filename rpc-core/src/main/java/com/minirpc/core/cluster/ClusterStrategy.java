@@ -11,7 +11,8 @@ import java.util.function.Supplier;
  * 定义 RPC 调用失败时的容错处理策略。
  * 内置 Failover（失败重试）、Failfast（快速失败）、Failback（延迟恢复）三种策略。
  */
-public interface ClusterStrategy {
+@FunctionalInterface
+public interface ClusterStrategy extends AutoCloseable {
 
     /**
      * 执行 RPC 调用（带容错策略）
@@ -21,4 +22,11 @@ public interface ClusterStrategy {
      * @return RPC 响应
      */
     RpcResponse invoke(RpcRequest request, Supplier<RpcResponse> invoker);
+
+    /**
+     * 释放策略持有的资源。实现必须允许重复关闭，供客户端及容器生命周期共同调用。
+     */
+    @Override
+    default void close() {
+    }
 }

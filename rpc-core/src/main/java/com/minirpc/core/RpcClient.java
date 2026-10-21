@@ -4,6 +4,7 @@ import com.minirpc.common.exception.RpcException;
 import com.minirpc.common.generic.GenericService;
 import com.minirpc.common.protocol.SerializerType;
 import com.minirpc.core.client.NettyClient;
+import com.minirpc.core.cluster.ClusterStrategy;
 import com.minirpc.core.config.RpcConfig;
 import com.minirpc.core.loadbalance.LoadBalancer;
 import com.minirpc.core.observability.RpcInvocationListener;
@@ -15,9 +16,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * RPC 客户端门面类
@@ -49,6 +52,8 @@ public class RpcClient {
     private final LoadBalancer loadBalancer;
     private final RpcConfig config;
     private final List<RpcInvocationListener> invocationListeners = new CopyOnWriteArrayList<>();
+    private final AtomicBoolean shutdown = new AtomicBoolean();
+    private ClusterStrategy clusterStrategy;
 
     // 直连模式
     private String directHost;
@@ -111,6 +116,14 @@ public class RpcClient {
     }
 
     public <T> T createProxy(Class<T> interfaceClass, String version, String group) {
+        return createProxy(interfaceClass, version, group, 0);
+    }
+
+    /** 创建具有独立超时预算的代理；0 使用全局配置，不改变同一客户端的其他代理。 */
+    public <T> T createProxy(Class<T> interfaceClass, String version, String group, long timeoutMs) {
+        if (timeoutMs < 0) {
+            throw new IllegalArgumentException("reference timeout must not be negative");
+        }
         RpcClientProxy proxy;
         if (directMode) {
             proxy = new RpcClientProxy(nettyClient, directHost, directPort, config);
@@ -118,6 +131,10 @@ public class RpcClient {
             proxy = new RpcClientProxy(nettyClient, serviceDiscovery, loadBalancer, config);
         }
         proxy.setInvocationListeners(invocationListeners);
+        proxy.setClusterStrategy(clusterStrategy);
+        if (timeoutMs > 0) {
+            proxy.setRequestTimeoutMs(timeoutMs);
+        }
         proxy.setServiceVersion(version);
         proxy.setServiceGroup(group);
         log.info("Created RPC proxy for: {}", interfaceClass.getName());
@@ -142,6 +159,7 @@ public class RpcClient {
             proxy = new RpcClientProxy(nettyClient, serviceDiscovery, loadBalancer, config);
         }
         proxy.setInvocationListeners(invocationListeners);
+        proxy.setClusterStrategy(clusterStrategy);
         proxy.setAsyncMode(true);
         log.info("Created async RPC proxy for: {}", interfaceClass.getName());
         return proxy.createProxy(interfaceClass);
@@ -164,6 +182,7 @@ public class RpcClient {
             proxy = new RpcClientProxy(nettyClient, serviceDiscovery, loadBalancer, config);
         }
         proxy.setInvocationListeners(invocationListeners);
+        proxy.setClusterStrategy(clusterStrategy);
         proxy.setGenericMode(true);
         proxy.setGenericInterfaceName(interfaceName);
         log.info("Created generic RPC proxy for: {}", interfaceName);
@@ -177,6 +196,18 @@ public class RpcClient {
     }
 
     /**
+     * 创建代理前配置幂等同步方法使用的策略；只能配置一次，由客户端在 shutdown 时关闭。
+     * 非幂等方法仍使用 Failfast，异步和泛化调用不启用重试。
+     */
+    public synchronized void setClusterStrategy(ClusterStrategy strategy) {
+        Objects.requireNonNull(strategy, "clusterStrategy must not be null");
+        if (shutdown.get() || (clusterStrategy != null && clusterStrategy != strategy)) {
+            throw new IllegalStateException("cluster strategy is already configured or client is shut down");
+        }
+        this.clusterStrategy = strategy;
+    }
+
+    /**
      * 优雅关闭客户端
      * <p>
      * 等待 in-flight 请求完成后再关闭连接
@@ -186,7 +217,17 @@ public class RpcClient {
     }
 
     public void shutdown() {
+        if (!shutdown.compareAndSet(false, true)) {
+            return;
+        }
         log.info("Shutting down RPC Client gracefully...");
+        if (clusterStrategy != null) {
+            try {
+                clusterStrategy.close();
+            } catch (RuntimeException e) {
+                log.warn("Failed to close RPC cluster strategy", e);
+            }
+        }
         // 等待进行中的请求完成（通过 RequestFutureHolder 的 TTL 机制保证最终清理）
         // 给已发送但未收到响应的请求留出合理的完成时间
         try {

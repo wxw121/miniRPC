@@ -1,18 +1,27 @@
 package com.minirpc.core.cluster;
 
+import com.minirpc.common.exception.RpcException;
+import com.minirpc.common.protocol.RpcErrorCode;
 import com.minirpc.common.protocol.RpcRequest;
 import com.minirpc.common.protocol.RpcResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.*;
+import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /**
  * Failback 容错策略（延迟恢复）
  * <p>
- * 调用失败时记录请求，后台定时重试。
- * 适用于对实时性要求不高、最终一致性即可的场景（如消息通知、日志记录）。
+ * 首次调用的失败响应或异常原样交给调用方，仅对可恢复失败进行后台定时重试。
+ * 适用于幂等调用；后台重试共享请求原有的绝对 deadline，预算不足时不安排重试。
  */
 public class FailbackClusterStrategy implements ClusterStrategy {
 
@@ -33,71 +42,124 @@ public class FailbackClusterStrategy implements ClusterStrategy {
      */
     private final int maxRetries;
 
+    private final RetryPolicy retryPolicy;
+
+    private final LongSupplier currentTimeMillis;
+
+    private final AtomicBoolean closed = new AtomicBoolean();
+
     public FailbackClusterStrategy() {
-        this(5, 3);
+        this(1, 3);
     }
 
     public FailbackClusterStrategy(long retryDelaySeconds, int maxRetries) {
+        this(retryDelaySeconds, maxRetries, createRetryScheduler(retryDelaySeconds, maxRetries),
+                System::currentTimeMillis);
+    }
+
+    FailbackClusterStrategy(long retryDelaySeconds, int maxRetries,
+                            ScheduledExecutorService retryScheduler, LongSupplier currentTimeMillis) {
+        validateConfiguration(retryDelaySeconds, maxRetries);
         this.retryDelaySeconds = retryDelaySeconds;
         this.maxRetries = maxRetries;
-        this.retryScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "failback-retry");
-            t.setDaemon(true);
-            return t;
-        });
+        this.retryScheduler = Objects.requireNonNull(retryScheduler);
+        this.currentTimeMillis = Objects.requireNonNull(currentTimeMillis);
+        // 复用错误分类、次数和 deadline 判断；Failback 自己使用固定延迟，不使用随机退避。
+        this.retryPolicy = new RetryPolicy(maxRetries, 0, 0);
     }
 
     @Override
     public RpcResponse invoke(RpcRequest request, Supplier<RpcResponse> invoker) {
+        if (closed.get()) {
+            throw new IllegalStateException("Failback strategy is closed");
+        }
+        RpcResponse response;
         try {
-            return invoker.get();
-        } catch (Exception e) {
-            log.warn("Failback: call failed, scheduling retry for request: {}", request.getRequestId());
-            // 记录失败请求，后台延迟重试
-            scheduleRetry(request, invoker, 1);
-            // 返回一个失败响应（不抛异常，避免影响主流程）
-            return RpcResponse.fail(request.getRequestId(),
-                    "Failback: call failed, retry scheduled. Error: " + e.getMessage());
+            response = invoker.get();
+        } catch (RuntimeException failure) {
+            scheduleRetry(request, invoker, 1, errorCodeOf(failure));
+            throw failure;
+        }
+        if (response != null && response.getStatus() != RpcResponse.STATUS_SUCCESS) {
+            scheduleRetry(request, invoker, 1, response.getErrorCode());
+        }
+        return response;
+    }
+
+    private void scheduleRetry(RpcRequest request, Supplier<RpcResponse> invoker,
+                               int attempt, RpcErrorCode errorCode) {
+        long now = currentTimeMillis.getAsLong();
+        if (closed.get() || retryPolicy.nextDelayMillis(request, attempt, errorCode, now).isEmpty()) {
+            return;
+        }
+        long deadline = request.getContext() == null ? 0 : request.getContext().getDeadlineEpochMillis();
+        // 用剩余预算比较，避免把很大的秒数转换后再加到当前时间造成溢出。
+        if (deadline > 0 && TimeUnit.SECONDS.toMillis(retryDelaySeconds) >= deadline - now) {
+            return;
+        }
+        try {
+            retryScheduler.schedule(() -> retry(request, invoker, attempt), retryDelaySeconds, TimeUnit.SECONDS);
+        } catch (RejectedExecutionException failure) {
+            // 关闭可能与入队同时发生；不能用调度失败覆盖首次 RPC 的真实结果。
+            log.debug("Failback: retry scheduler stopped for request: {}", request.getRequestId());
         }
     }
 
-    private void scheduleRetry(RpcRequest request, Supplier<RpcResponse> invoker, int attempt) {
-        if (attempt > maxRetries) {
-            log.error("Failback: max retries ({}) exceeded for request: {}", maxRetries, request.getRequestId());
+    private void retry(RpcRequest request, Supplier<RpcResponse> invoker, int attempt) {
+        if (closed.get() || retryPolicy.isDeadlineExceeded(request, currentTimeMillis.getAsLong())) {
             return;
         }
-
-        retryScheduler.schedule(() -> {
-            try {
-                log.info("Failback: retrying request: {} (attempt {}/{})",
-                        request.getRequestId(), attempt, maxRetries);
-                RpcResponse response = invoker.get();
-                if (response.getStatus() == RpcResponse.STATUS_SUCCESS) {
-                    log.info("Failback: retry succeeded for request: {}", request.getRequestId());
-                } else {
-                    scheduleRetry(request, invoker, attempt + 1);
-                }
-            } catch (Exception e) {
-                log.warn("Failback: retry failed for request: {}, attempt: {}",
-                        request.getRequestId(), attempt);
-                scheduleRetry(request, invoker, attempt + 1);
+        log.info("Failback: retrying request: {} (attempt {}/{})", request.getRequestId(), attempt, maxRetries);
+        try {
+            RpcResponse response = invoker.get();
+            if (response != null && response.getStatus() != RpcResponse.STATUS_SUCCESS) {
+                scheduleRetry(request, invoker, attempt + 1, response.getErrorCode());
             }
-        }, retryDelaySeconds, TimeUnit.SECONDS);
+        } catch (RuntimeException failure) {
+            scheduleRetry(request, invoker, attempt + 1, errorCodeOf(failure));
+        }
+    }
+
+    private RpcErrorCode errorCodeOf(Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (current instanceof RpcException rpcException) {
+                return rpcException.getErrorCode();
+            }
+        }
+        return RpcErrorCode.UNAVAILABLE;
+    }
+
+    private static ScheduledExecutorService createRetryScheduler(long retryDelaySeconds, int maxRetries) {
+        validateConfiguration(retryDelaySeconds, maxRetries);
+        return Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "failback-retry");
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
+
+    private static void validateConfiguration(long retryDelaySeconds, int maxRetries) {
+        if (retryDelaySeconds < 0 || maxRetries < 0) {
+            throw new IllegalArgumentException("Failback retry delay and retry count must not be negative");
+        }
     }
 
     /**
      * 关闭重试调度器，释放线程资源
      */
     public void shutdown() {
-        retryScheduler.shutdown();
-        try {
-            if (!retryScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                retryScheduler.shutdownNow();
+        if (closed.compareAndSet(false, true)) {
+            for (Runnable pending : retryScheduler.shutdownNow()) {
+                if (pending instanceof Future<?> future) {
+                    future.cancel(false);
+                }
             }
-        } catch (InterruptedException e) {
-            retryScheduler.shutdownNow();
-            Thread.currentThread().interrupt();
+            log.info("FailbackClusterStrategy shutdown");
         }
-        log.info("FailbackClusterStrategy shutdown");
+    }
+
+    @Override
+    public void close() {
+        shutdown();
     }
 }

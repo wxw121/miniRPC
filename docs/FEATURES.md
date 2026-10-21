@@ -76,7 +76,9 @@
 |------|------|----------|
 | Failover | 失败自动切换其他节点重试 | 读操作、幂等写 |
 | Failfast | 失败立即报错 | 非幂等写操作 |
-| Failback | 失败后记录，后台定时重试 | 消息通知、最终一致性 |
+| Failback | 首次失败向调用方报错，后台在原 deadline 内定时补偿 | 可接受首次失败、允许重试的幂等通知 |
+
+默认仅 `@RpcIdempotent` 同步方法使用 Failover，其他方法使用 Failfast。创建代理前可通过 `RpcClient.setClusterStrategy(ClusterStrategy)` 替换幂等同步方法的策略；Starter 自动获取唯一（或 `@Primary`）的 `ClusterStrategy` Bean。例如 `new FailbackClusterStrategy(1, 3)` 表示间隔 1 秒、最多 3 次后台重试（也是无参构造的默认值），仅处理 `UNAVAILABLE` / `OVERLOADED`。补偿不重置 deadline，剩余预算不足时不排队，执行前过期也会停止；它是进程内的有限重试，不保证持久化或最终投递。非幂等、异步和泛化调用不启用补偿。策略由客户端独占，`RpcClient.shutdown()` 会调用其幂等的 `close()`，取消未执行任务并关闭调度器。
 
 ## 6. 熔断与限流
 
@@ -172,9 +174,10 @@ effectiveWeight = max(1, weight × uptime / warmupPeriod)
 
 **实现**：`SpiLoader`
 
-- 类似 Dubbo SPI，通过配置文件加载接口实现
-- 注册中心、序列化器均可插拔替换
-- 符合开闭原则，扩展无需修改框架代码
+- 通过 Java `ServiceLoader` 读取 `META-INF/services/<接口全限定名>`，文件内容为具有无参构造方法的实现类全限定名
+- `SerializerFactory` 实际调用 `SpiLoader.loadAll(Serializer.class)`；实现的 `getType()` 声明对应的 `SerializerType`。内置实现作为回退，自定义实现优先，多个不同自定义类声明同一类型时明确报错，不依赖配置文件发现顺序
+- 序列化扩展必须兼容对应枚举值的线格式，客户端与服务端应部署相同实现；SPI 不新增协议类型码，也不允许网络报文选择 JDK 原生序列化
+- Starter 在 `minirpc.registry.type=spi` 时通过 `SpiLoader.loadAll(Registry.class)` 为每个容器新建唯一的注册中心实现；没有提供者或存在多个提供者时启动失败。用户显式声明的 `Registry` Bean 优先于自动配置，`local` / `zookeeper` 保持原有选择方式
 
 ## 14. Spring Boot Starter
 
@@ -182,9 +185,10 @@ effectiveWeight = max(1, weight × uptime / warmupPeriod)
 
 - `@AutoConfiguration` 自动装配 RpcServer / RpcClient / Registry
 - `@ConditionalOnProperty` 支持开关（`minirpc.enabled`）
-- `RpcReferenceBeanPostProcessor` 扫描 `@RpcReference` 字段，自动注入代理
-- `@RpcReference` 可指定 `version` 和 `group`；服务发现使用接口、版本、分组三元组匹配实例
-- 仅标记 `@RpcIdempotent` 的方法使用 failover，其他方法默认 fail-fast，避免写操作重复执行
+- 服务引用统一使用 `com.minirpc.core.annotation.RpcReference`；Starter 的 `RpcReferenceBeanPostProcessor` 扫描注解字段（含继承字段），自动注入代理
+- `@RpcReference` 支持 `version`、`group`、`timeout`；服务发现使用接口、版本、分组三元组匹配实例。`timeout=0`（默认）沿用全局超时，正数覆盖当前引用的毫秒预算，负数启动失败；不会改变其他引用的配置
+- 仅标记 `@RpcIdempotent` 的同步方法使用自定义 `ClusterStrategy` Bean（未提供则 failover），其他方法默认 fail-fast，避免写操作重复执行
+- 自动创建的服务端使用应用提供的唯一或 `@Primary` 的 `RpcAuthenticator` Bean，在业务执行前鉴权；无 Bean 时默认放行，多个 Bean 无法唯一选择时启动失败。自定义 `RpcServer` Bean 仍由应用配置
 - 配置前缀 `minirpc.*`，支持注册中心、端口、序列化类型等
 
 ```yaml

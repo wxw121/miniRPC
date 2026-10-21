@@ -1,6 +1,7 @@
 package com.minirpc.common.serialize;
 
 import com.minirpc.common.exception.RpcException;
+import com.minirpc.common.protocol.SerializerType;
 
 import java.io.*;
 
@@ -11,6 +12,11 @@ import java.io.*;
  * 缺点：序列化后体积大、性能较差、要求对象实现 Serializable 接口
  */
 public class JdkSerializer implements Serializer {
+
+    @Override
+    public SerializerType getType() {
+        return SerializerType.JDK;
+    }
 
     @Override
     public byte[] serialize(Object obj) {

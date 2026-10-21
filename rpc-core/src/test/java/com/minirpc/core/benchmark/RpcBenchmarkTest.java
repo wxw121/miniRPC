@@ -1,6 +1,7 @@
 package com.minirpc.core.benchmark;
 
 import com.minirpc.common.protocol.SerializerType;
+import ch.qos.logback.classic.Level;
 import com.minirpc.core.RpcServer;
 import com.minirpc.core.client.NettyClient;
 import com.minirpc.core.config.RpcConfig;
@@ -22,7 +23,7 @@ import java.util.concurrent.atomic.LongAdder;
  * 测试场景：
  * 1. 单线程基准 —— 建立延迟基线，测量 P50/P95/P99
  * 2. 多并发梯度 —— 4/8/16/32 并发线程，测量最大 TPS
- * 3. 序列化协议对比 —— JDK / Hessian2 / Protostuff
+ * 3. 序列化协议对比 —— Hessian2 / Protostuff（网络传输明确禁用 JDK 序列化）
  * 4. 负载大小对比 —— 轻负载(String) vs 中负载(复合对象)
  * <p>
  * 结果会通过 BenchmarkResult 汇总打印，
@@ -43,6 +44,7 @@ class RpcBenchmarkTest {
     private static final int CALLS_PER_THREAD = 2000;
 
     private static RpcServer server;
+    private static Level originalRootLogLevel;
 
     // 全局压测结果汇总
     private static final List<BenchmarkResult> RESULTS = new ArrayList<>();
@@ -109,6 +111,11 @@ class RpcBenchmarkTest {
 
     @BeforeAll
     static void startServer() throws InterruptedException {
+        ch.qos.logback.classic.Logger rootLogger =
+                (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+        originalRootLogLevel = rootLogger.getLevel();
+        rootLogger.setLevel(Level.ERROR);
+
         LocalServiceRegistry.clear();
         server = new RpcServer(TEST_PORT);
         server.registerService(new EchoServiceImpl());
@@ -126,6 +133,11 @@ class RpcBenchmarkTest {
             server.stop();
         }
         printSummary();
+        if (originalRootLogLevel != null) {
+            ch.qos.logback.classic.Logger rootLogger =
+                    (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+            rootLogger.setLevel(originalRootLogLevel);
+        }
     }
 
     // ========== 压测场景 ==========
@@ -142,24 +154,13 @@ class RpcBenchmarkTest {
         RESULTS.add(result);
     }
 
+
     /**
-     * 场景 2：JDK 序列化，单线程基准测试
+     * 场景 2：Protostuff 序列化，单线程基准测试
      */
     @Test
     @Order(2)
-    @DisplayName("场景2: JDK 序列化单线程基准")
-    void bench_singleThread_jdk() throws Exception {
-        BenchmarkResult result = runSingleThread(
-                "JDK 单线程 echo", SerializerType.JDK, BASELINE_CALLS);
-        RESULTS.add(result);
-    }
-
-    /**
-     * 场景 3：Protostuff 序列化，单线程基准测试
-     */
-    @Test
-    @Order(3)
-    @DisplayName("场景3: Protostuff 序列化单线程基准")
+    @DisplayName("场景2: Protostuff 序列化单线程基准")
     void bench_singleThread_protostuff() throws Exception {
         BenchmarkResult result = runSingleThread(
                 "Protostuff 单线程 echo", SerializerType.PROTOSTUFF, BASELINE_CALLS);
@@ -167,11 +168,11 @@ class RpcBenchmarkTest {
     }
 
     /**
-     * 场景 4：Hessian2，4/8/16/32 线程并发梯度
+     * 场景 3：Hessian2，4/8/16/32 线程并发梯度
      */
     @Test
-    @Order(4)
-    @DisplayName("场景4: Hessian2 并发梯度 4→32 线程")
+    @Order(3)
+    @DisplayName("场景3: Hessian2 并发梯度 4→32 线程")
     void bench_concurrent_gradient() throws Exception {
         int[] threads = {4, 8, 16, 32};
         for (int t : threads) {
@@ -182,11 +183,11 @@ class RpcBenchmarkTest {
     }
 
     /**
-     * 场景 5：复合对象负载（中等大小 payload）
+     * 场景 4：复合对象负载（中等大小 payload）
      */
     @Test
-    @Order(5)
-    @DisplayName("场景5: 复合对象负载对比（Hessian2 vs Protostuff）")
+    @Order(4)
+    @DisplayName("场景4: 复合对象负载对比（Hessian2 vs Protostuff）")
     void bench_complexPayload() throws Exception {
         BenchmarkResult r1 = runComplexPayload(
                 "Hessian2 复合对象 8线程", SerializerType.HESSIAN2, 8, CALLS_PER_THREAD);

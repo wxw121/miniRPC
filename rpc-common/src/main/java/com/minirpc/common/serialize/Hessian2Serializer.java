@@ -3,6 +3,7 @@ package com.minirpc.common.serialize;
 import com.caucho.hessian.io.Hessian2Input;
 import com.caucho.hessian.io.Hessian2Output;
 import com.minirpc.common.exception.RpcException;
+import com.minirpc.common.protocol.SerializerType;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -15,6 +16,11 @@ import java.io.IOException;
  * 缺点：需要额外依赖
  */
 public class Hessian2Serializer implements Serializer {
+
+    @Override
+    public SerializerType getType() {
+        return SerializerType.HESSIAN2;
+    }
 
     @Override
     public byte[] serialize(Object obj) {

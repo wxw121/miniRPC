@@ -63,7 +63,8 @@ public class SpiLoader {
     }
 
     /**
-     * 加载所有 SPI 实现
+     * 加载所有 SPI 实现；每次调用创建独立的 ServiceLoader 和提供者实例，
+     * 不使用全局单例缓存，调用方负责管理有状态或可关闭实现的生命周期。
      */
     public static <T> Iterable<T> loadAll(Class<T> interfaceClass) {
         return ServiceLoader.load(interfaceClass);

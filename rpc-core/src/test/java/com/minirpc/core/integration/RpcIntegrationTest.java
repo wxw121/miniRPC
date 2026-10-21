@@ -1,12 +1,24 @@
 package com.minirpc.core.integration;
 
 import com.minirpc.common.generic.GenericService;
+import com.minirpc.common.exception.RpcException;
+import com.minirpc.common.protocol.RpcErrorCode;
 import com.minirpc.core.RpcClient;
 import com.minirpc.core.RpcServer;
+import com.minirpc.core.annotation.RpcIdempotent;
+import com.minirpc.core.cluster.FailbackClusterStrategy;
+import com.minirpc.core.config.RpcConfig;
+import com.minirpc.core.observability.RpcInvocationEvent;
 import com.minirpc.core.registry.LocalServiceRegistry;
+import com.minirpc.registry.ServiceDiscovery;
+import com.minirpc.registry.ServiceInstance;
 import org.junit.jupiter.api.*;
 
+import java.net.ServerSocket;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -137,6 +149,48 @@ class RpcIntegrationTest {
         }
     }
 
+    @Test
+    @Order(6)
+    void failbackRecoversFromARealConnectionRefusalOnAnotherEndpoint() throws Exception {
+        int refusedPort;
+        try (ServerSocket reservation = new ServerSocket(0)) {
+            refusedPort = reservation.getLocalPort();
+        }
+        LocalServiceRegistry.registerService(RetryingEchoService.class.getName(), new EchoServiceImpl());
+        List<ServiceInstance> instances = List.of(
+                new ServiceInstance(RetryingEchoService.class.getName(), "127.0.0.1", refusedPort),
+                new ServiceInstance(RetryingEchoService.class.getName(), "127.0.0.1", TEST_PORT));
+        ServiceDiscovery discovery = new ServiceDiscovery(null) {
+            @Override
+            public List<ServiceInstance> getInstances(String service, String version, String group) {
+                return instances;
+            }
+
+            @Override public void close() { }
+        };
+        RpcClient client = new RpcClient(discovery, (candidates, key) -> candidates.get(0),
+                RpcConfig.builder().connectTimeoutMs(300).build());
+        client.setClusterStrategy(new FailbackClusterStrategy(0, 1));
+        CountDownLatch recovered = new CountDownLatch(1);
+        List<RpcInvocationEvent> events = new CopyOnWriteArrayList<>();
+        client.addInvocationListener(event -> {
+            events.add(event);
+            if (event.errorCode() == null) {
+                recovered.countDown();
+            }
+        });
+        try {
+            RetryingEchoService service = client.createProxy(RetryingEchoService.class);
+            RpcException error = assertThrows(RpcException.class, () -> service.echo("failback"));
+            assertEquals(RpcErrorCode.UNAVAILABLE, error.getErrorCode());
+            assertTrue(recovered.await(2, TimeUnit.SECONDS));
+            assertEquals(List.of("127.0.0.1:" + refusedPort, "127.0.0.1:" + TEST_PORT),
+                    events.stream().map(RpcInvocationEvent::targetEndpoint).toList());
+        } finally {
+            client.shutdown();
+        }
+    }
+
     // ========== 测试用服务接口和实现 ==========
 
     public interface EchoService {
@@ -149,6 +203,10 @@ class RpcIntegrationTest {
      */
     public interface EchoServiceAsync {
         CompletableFuture<String> echo(String message);
+    }
+
+    public interface RetryingEchoService {
+        @RpcIdempotent String echo(String message);
     }
 
     public static class EchoServiceImpl implements EchoService {

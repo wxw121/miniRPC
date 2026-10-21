@@ -25,6 +25,8 @@ public class HeartbeatHandler extends ChannelDuplexHandler {
         if (evt instanceof IdleStateEvent idleEvent) {
             if (idleEvent.state() == IdleState.WRITER_IDLE) {
                 // 写空闲，发送心跳
+                // 心跳消息体为 null，JDK 仅用于填充协议头中的序列化类型字段。
+                // 编码后消息体长度为 0，编解码器均跳过序列化器调用，不会执行 JDK 序列化或反序列化。
                 RpcMessage heartbeat = new RpcMessage(MessageType.HEARTBEAT, SerializerType.JDK, null);
                 ctx.writeAndFlush(heartbeat);
                 log.debug("Sent heartbeat to server: {}", ctx.channel().remoteAddress());

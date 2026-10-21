@@ -1,5 +1,6 @@
 package com.minirpc.sample.client;
 
+import com.minirpc.common.generic.GenericService;
 import com.minirpc.core.RpcClient;
 import com.minirpc.core.config.RpcConfig;
 import com.minirpc.core.loadbalance.RoundRobinLoadBalancer;
@@ -37,6 +38,7 @@ public class ClientApplication {
         }
 
         try {
+            GenericService genericProxy = client.createGenericProxy("HelloService");
             HelloService helloService = client.createProxy(HelloService.class);
             // 调用远程方法（对调用者透明，就像调用本地方法一样）
             String greeting = helloService.sayHello("World");

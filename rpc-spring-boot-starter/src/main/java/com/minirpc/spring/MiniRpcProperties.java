@@ -164,7 +164,7 @@ public class MiniRpcProperties {
      * 注册中心配置
      */
     public static class Registry {
-        /** 注册中心类型: local / zookeeper */
+        /** 注册中心类型: local / zookeeper / spi */
         private String type = "local";
 
         /** ZooKeeper 连接地址 */

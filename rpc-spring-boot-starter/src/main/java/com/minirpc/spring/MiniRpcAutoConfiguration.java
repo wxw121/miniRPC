@@ -3,9 +3,12 @@ package com.minirpc.spring;
 import com.minirpc.core.RpcClient;
 import com.minirpc.core.RpcServer;
 import com.minirpc.core.config.RpcConfig;
+import com.minirpc.core.cluster.ClusterStrategy;
 import com.minirpc.core.observability.RpcInvocationListener;
 import com.minirpc.core.security.TlsConfig;
+import com.minirpc.core.security.RpcAuthenticator;
 import com.minirpc.common.protocol.SerializerType;
+import com.minirpc.common.spi.SpiLoader;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import com.minirpc.registry.Registry;
@@ -25,6 +28,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.ApplicationContext;
 
 import java.nio.file.Path;
+import java.util.Iterator;
 /**
  * Mini RPC 自动配置类
  * 当 minirpc.enabled=true（默认）时生效
@@ -47,6 +51,22 @@ public class MiniRpcAutoConfiguration {
             log.info("Mini RPC 使用 ZooKeeper 注册中心: {}", registryProps.getAddress());
             return new ZookeeperRegistry(registryProps.getAddress(), registryProps.getBasePath());
         }
+        if ("spi".equalsIgnoreCase(registryProps.getType())) {
+            // Registry 的生命周期属于当前 Spring 容器，不能复用 SpiLoader 的全局单例缓存。
+            Iterator<Registry> providers = SpiLoader.loadAll(Registry.class).iterator();
+            if (!providers.hasNext()) {
+                throw new IllegalStateException("No Registry SPI provider found in META-INF/services");
+            }
+            Registry registry = providers.next();
+            if (providers.hasNext()) {
+                registry.close();
+                throw new IllegalStateException("Multiple Registry SPI providers found; declare a Registry Bean to select one");
+            }
+            return registry;
+        }
+        if (!"local".equalsIgnoreCase(registryProps.getType())) {
+            throw new IllegalArgumentException("Unsupported registry type: " + registryProps.getType());
+        }
         log.info("Mini RPC 使用本地内存注册中心");
         return new LocalRegistry();
     }
@@ -66,7 +86,8 @@ public class MiniRpcAutoConfiguration {
     @Bean(destroyMethod = "stop")
     @ConditionalOnMissingBean(RpcServer.class)
     @ConditionalOnProperty(prefix = "minirpc.server", name = "enabled", havingValue = "true")
-    public RpcServer rpcServer(MiniRpcProperties properties, MiniRpcReliabilityProperties reliabilityProperties, Registry registry, ObjectProvider<RpcInvocationListener> invocationListeners) {
+    public RpcServer rpcServer(MiniRpcProperties properties, MiniRpcReliabilityProperties reliabilityProperties, Registry registry, ObjectProvider<RpcInvocationListener> invocationListeners, ObjectProvider<RpcAuthenticator> authenticators) {
+        RpcAuthenticator authenticator = authenticators.getIfAvailable();
         MiniRpcProperties.Server serverProps = properties.getServer();
         log.info("Mini RPC Server 启动端口: {}", serverProps.getPort());
         RpcServer server = new RpcServer(RpcConfig.builder()
@@ -77,6 +98,9 @@ public class MiniRpcAutoConfiguration {
                 .tlsConfig(tlsConfig(reliabilityProperties.getServer().getTls()))
                 .build());
         server.setRegistry(registry);
+        if (authenticator != null) {
+            server.setAuthenticator(authenticator);
+        }
         invocationListeners.orderedStream().forEach(server::addInvocationListener);
         // 在守护线程中启动，避免阻塞 Spring 容器
         return server;
@@ -99,7 +123,8 @@ public class MiniRpcAutoConfiguration {
      */
     @Bean(destroyMethod = "shutdown")
     @ConditionalOnMissingBean(RpcClient.class)
-    public RpcClient rpcClient(ServiceDiscovery serviceDiscovery, MiniRpcProperties properties, MiniRpcReliabilityProperties reliabilityProperties, ObjectProvider<RpcInvocationListener> invocationListeners) {
+    public RpcClient rpcClient(ServiceDiscovery serviceDiscovery, MiniRpcProperties properties, MiniRpcReliabilityProperties reliabilityProperties, ObjectProvider<RpcInvocationListener> invocationListeners, ObjectProvider<ClusterStrategy> clusterStrategies) {
+        ClusterStrategy clusterStrategy = clusterStrategies.getIfAvailable();
         log.info("Mini RPC Client 初始化");
         MiniRpcProperties.Client client = properties.getClient();
         RpcConfig config = RpcConfig.builder()
@@ -113,6 +138,9 @@ public class MiniRpcAutoConfiguration {
                 .tlsConfig(tlsConfig(reliabilityProperties.getClient().getTls()))
                 .build();
         RpcClient rpcClient = new RpcClient(serviceDiscovery, config);
+        if (clusterStrategy != null) {
+            rpcClient.setClusterStrategy(clusterStrategy);
+        }
         invocationListeners.orderedStream().forEach(rpcClient::addInvocationListener);
         return rpcClient;
     }

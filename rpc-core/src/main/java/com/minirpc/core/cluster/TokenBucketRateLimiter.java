@@ -67,15 +67,20 @@ public class TokenBucketRateLimiter {
     }
 
     /**
-     * 补充令牌（基于时间差计算）
+     * 按需补充令牌：调用时根据经过的时间计算应补充的数量，无需定时线程。
      */
     private void refill() {
+        // nanoTime 用于计算经过的时长，避免系统日期时间调整影响补充计算。
         long now = System.nanoTime();
+        // 纳秒换算为秒，使用浮点除法保留不足 1 秒的部分。
         double elapsed = (now - lastRefillTimestamp) / 1_000_000_000.0;
+        // 经过的秒数 × 每秒速率，例如 0.2 秒 × 10 个/秒 = 2 个令牌；小数令牌也会保留。
         double tokensToAdd = elapsed * tokensPerSecond;
 
         if (tokensToAdd > 0) {
+            // 补充后不能超过桶容量，超出的部分直接丢弃，限制空闲后可积累的最大令牌数。
             currentTokens = Math.min(capacity, currentTokens + tokensToAdd);
+            // 更新计算起点，避免下次重复计算同一段时间。
             lastRefillTimestamp = now;
         }
     }

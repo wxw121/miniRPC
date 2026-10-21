@@ -9,7 +9,7 @@ import java.io.Serializable;
  * - requestId: 请求唯一标识，用于请求-响应匹配
  * - interfaceName: 调用的服务接口全限定名
  * - methodName: 调用的方法名
- * - parameterTypeNames: 方法参数类型名称数组（用 String 而非 Class，避免跨 ClassLoader 序列化问题）
+ * - parameterTypeNames: 方法参数类型名称数组（普通调用和泛化调用统一使用，服务端解析为本地类型）
  * - parameters: 方法参数值数组
  */
 public class RpcRequest implements Serializable {
@@ -45,12 +45,17 @@ public class RpcRequest implements Serializable {
     private String methodName;
 
     /**
-     * 参数类型名称数组（全限定类名）
+     * 方法声明中的参数类型名称数组，使用 {@link Class#getName()} 对应的名称，
+     * 例如 java.lang.String、int，以及表示 String[] 的 [Ljava.lang.String;。
      * <p>
-     * 使用 String 而非 Class 的原因：
-     * 1. Class 对象在 Hessian2 序列化时可能失败（跨 ClassLoader）
-     * 2. String 更轻量，网络传输开销更小
-     * 3. 服务端通过 Class.forName() 解析，兼容性好
+     * 使用 String 而非直接传输 Class 的原因：
+     * 1. 用简单的类型名称描述方法签名，减少对序列化器处理 Class 对象的依赖。
+     * 2. 泛化调用可以直接提供类型名称，无需为描述参数类型而先加载对应的 Class。
+     * 3. 服务端在查找方法前统一解析为本地类型：基本类型单独映射，引用类型和数组
+     *    通过 {@code Class.forName()} 加载。
+     * <p>
+     * Hessian2 本身支持序列化 Class；传递名称并不能自动解决跨 ClassLoader 或类缺失问题。
+     * 当前解析使用 RpcRequest 的定义类加载器，仍须能加载到与服务方法声明一致的类型。
      */
     private String[] parameterTypeNames;
 
@@ -152,18 +157,18 @@ public class RpcRequest implements Serializable {
      * 解析类名（支持基本类型）
      */
     private static Class<?> resolveClass(String className) throws ClassNotFoundException {
-        switch (className) {
-            case "int": return int.class;
-            case "long": return long.class;
-            case "double": return double.class;
-            case "float": return float.class;
-            case "boolean": return boolean.class;
-            case "byte": return byte.class;
-            case "short": return short.class;
-            case "char": return char.class;
-            case "void": return void.class;
-            default: return Class.forName(className);
-        }
+        return switch (className) {
+            case "int" -> int.class;
+            case "long" -> long.class;
+            case "double" -> double.class;
+            case "float" -> float.class;
+            case "boolean" -> boolean.class;
+            case "byte" -> byte.class;
+            case "short" -> short.class;
+            case "char" -> char.class;
+            case "void" -> void.class;
+            default -> Class.forName(className);
+        };
     }
 
     public Object[] getParameters() {
