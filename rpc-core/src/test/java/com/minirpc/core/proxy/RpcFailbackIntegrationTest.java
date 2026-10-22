@@ -6,12 +6,14 @@ import com.minirpc.common.protocol.RpcRequest;
 import com.minirpc.common.protocol.RpcResponse;
 import com.minirpc.core.annotation.RpcIdempotent;
 import com.minirpc.core.client.NettyClient;
+import java.util.concurrent.CompletableFuture;
 import com.minirpc.core.cluster.FailbackClusterStrategy;
 import com.minirpc.core.config.RpcConfig;
 import com.minirpc.registry.ServiceDiscovery;
 import com.minirpc.registry.ServiceInstance;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
+import java.util.concurrent.CompletionException;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -23,8 +25,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class RpcFailbackIntegrationTest {
 
     @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void backgroundRetryAvoidsFailedEndpointAndPreservesRequestContext(boolean throwsException) throws Exception {
+    @CsvSource({"true,true", "true,false", "false,true", "false,false"})
+    void backgroundRetryAvoidsFailedEndpointAndPreservesRequestContext(boolean throwsException, boolean async) throws Exception {
         RecoveringClient client = new RecoveringClient(throwsException);
         FailbackClusterStrategy strategy = new FailbackClusterStrategy(0, 1);
         List<ServiceInstance> instances = List.of(
@@ -40,9 +42,16 @@ class RpcFailbackIntegrationTest {
             RpcClientProxy proxy = new RpcClientProxy(client, discovery,
                     (candidates, key) -> candidates.get(0), RpcConfig.defaultConfig());
             proxy.setClusterStrategy(strategy);
+            proxy.setAsyncMode(async);
 
-            RpcException error = assertThrows(RpcException.class,
-                    () -> proxy.createProxy(EchoService.class).echo());
+            RpcException error;
+            if (async) {
+                CompletionException failure = assertThrows(CompletionException.class,
+                        () -> proxy.createProxy(AsyncEchoService.class).echo().join());
+                error = assertInstanceOf(RpcException.class, failure.getCause());
+            } else {
+                error = assertThrows(RpcException.class, () -> proxy.createProxy(EchoService.class).echo());
+            }
             assertEquals(RpcErrorCode.UNAVAILABLE, error.getErrorCode());
             assertTrue(client.recovered.await(2, TimeUnit.SECONDS));
             assertEquals(List.of(9101, 9102), client.ports);
@@ -64,6 +73,10 @@ class RpcFailbackIntegrationTest {
         @RpcIdempotent String echo();
     }
 
+    interface AsyncEchoService {
+        @RpcIdempotent CompletableFuture<String> echo();
+    }
+
     static class RecoveringClient extends NettyClient {
         final boolean throwsException;
         final List<Integer> ports = new CopyOnWriteArrayList<>();
@@ -76,7 +89,7 @@ class RpcFailbackIntegrationTest {
         }
 
         @Override
-        public RpcResponse sendSync(String host, int port, RpcRequest request) {
+        public CompletableFuture<RpcResponse> sendAsync(String host, int port, RpcRequest request) {
             ports.add(port);
             requests.add(request);
             threads.add(Thread.currentThread().getId());
@@ -84,10 +97,10 @@ class RpcFailbackIntegrationTest {
                 if (throwsException) {
                     throw new RpcException(RpcErrorCode.UNAVAILABLE, "endpoint unavailable");
                 }
-                return RpcResponse.fail(request.getRequestId(), RpcErrorCode.UNAVAILABLE, "endpoint unavailable");
+                return CompletableFuture.completedFuture(RpcResponse.fail(request.getRequestId(), RpcErrorCode.UNAVAILABLE, "endpoint unavailable"));
             }
             recovered.countDown();
-            return RpcResponse.success(request.getRequestId(), "ok");
+            return CompletableFuture.completedFuture(RpcResponse.success(request.getRequestId(), "ok"));
         }
     }
 }

@@ -59,6 +59,16 @@ public class EndpointHealthTracker {
         endpoints.remove(address);
     }
 
+    /** A cancelled recovery attempt must not hold the sole probe slot indefinitely. */
+    public void releaseRecoveryProbe(String address) {
+        EndpointHealth health = endpoints.get(address);
+        if (health != null) {
+            synchronized (health) {
+                health.recoveryProbeInFlight = false;
+            }
+        }
+    }
+
     /**
      * 记录一次调用失败，并根据节点所处阶段决定是否隔离。
      *

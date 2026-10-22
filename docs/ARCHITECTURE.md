@@ -17,8 +17,8 @@
 │      │                                                                │
 │      ▼                                                                │
 │   ┌──────────────────┐   ┌──────────────┐   ┌──────────────────┐     │
-│   │   FilterChain    │ → │ RateLimiter  │ → │  CircuitBreaker  │     │
-│   │ (Trace/Metrics)  │   │  (令牌桶限流) │   │   (三态熔断)      │     │
+│   │   RateLimiter    │ → │CircuitBreaker│ → │   FilterChain    │     │
+│   │  (令牌桶限流)    │   │ (三态熔断)    │   │ (Trace/Metrics)  │     │
 │   └──────────────────┘   └──────────────┘   └──────────────────┘     │
 │      │                                                                │
 │      ▼                                                                │
@@ -80,33 +80,36 @@ sample → spring-boot-starter → core → registry → common
 
 ## 三、客户端调用链路
 
-一次同步 RPC 调用的完整流程：
+同步与异步代理共用以下调用链，只有结果获取方式不同：
 
+```text
+1. RpcClientProxy.invoke()          构建请求及 deadline，检查 @RpcIdempotent
+        ↓
+2. RateLimiter → CircuitBreaker    每次逻辑调用执行一次准入检查
+        ↓
+3. FilterChain.executeAsync()       TraceFilter → MetricsFilter
+        ↓
+4. ClusterStrategy.invokeAsync()    幂等方法可重试，其他方法使用 Failfast
+        ↓ 每次尝试重新执行下面的选址和发送
+5. copyForAttempt()                保留 requestId/traceId/deadline，记录尝试编号
+        ↓
+6. ServiceDiscovery → 失败节点排除 → EndpointHealthTracker → LoadBalancer
+        ↓ 直连模式使用配置地址
+7. NettyClient.sendAsync()          先登记 Future，再获取连接并发送
+        ↓
+8. RpcClientHandler                按 requestId 完成响应 Future
+        ↓
+9. 尝试完成回调                      记录端点健康和调用事件，策略判断是否再次尝试
+        ↓
+10. 过滤器与熔断器记录最终结果        提取 response.data
+        ↓
+11. 同步入口等待业务 Future；异步入口直接返回业务 Future
 ```
-1. 业务调用接口方法
-        ↓
-2. RpcClientProxy.invoke()          构建 RpcRequest（requestId/接口名/方法名/参数）
-        ↓
-3. FilterChain                      TraceFilter（埋点）→ MetricsFilter（统计）
-        ↓
-4. RateLimiter.tryAcquire()         令牌桶限流，超限直接抛异常
-        ↓
-5. CircuitBreaker.allowRequest()    熔断检查，OPEN 状态快速失败
-        ↓
-6. ServiceDiscovery.getInstances()  从本地缓存获取实例列表
-        ↓
-7. LoadBalancer.select()            按权重（含预热）选出目标节点
-        ↓
-8. NettyClient.sendSync()           连接池取 Channel → 编码 → 发送
-        ↓
-9. RequestFutureHolder.register()   注册 requestId → CompletableFuture
-        ↓
-10. future.get(timeout)             阻塞等待响应
-        ↓
-11. RpcClientHandler.channelRead()  收到响应 → 按 requestId 匹配 → complete Future
-        ↓
-12. 返回结果 / 抛出异常
-```
+
+内置 Failover 使用延迟调度和 Future 回调，不在响应线程中休眠或等待下次响应。
+同步 SPI 保持兼容，旧扩展通过公共线程池桥接；内置策略与过滤器提供原生异步实现。
+服务发现和连接获取仍可能同步等待。取消代理 Future 会传递到底层当前请求；
+超时为异常完成，不发送 CANCEL。
 
 ## 四、服务端处理链路
 

@@ -1,6 +1,8 @@
 package com.minirpc.core.client;
 
 import com.minirpc.common.protocol.RpcResponse;
+import com.minirpc.common.protocol.RpcErrorCode;
+import com.minirpc.common.exception.RpcException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,6 +79,12 @@ public class RequestFutureHolder {
         CompletableFuture<RpcResponse> future = new CompletableFuture<>();
         FUTURE_MAP.put(requestId, future);
         TIMESTAMP_MAP.put(requestId, System.currentTimeMillis() + Math.max(1, timeoutMs));
+        future.whenComplete((response, error) -> {
+            // A timeout/cancellation can complete the transport Future without a response frame.
+            if (FUTURE_MAP.remove(requestId, future)) {
+                TIMESTAMP_MAP.remove(requestId);
+            }
+        });
         return future;
     }
 
@@ -117,7 +125,7 @@ public class RequestFutureHolder {
     /**
      * 清理超时的 Future，防止内存泄漏
      */
-    private static void cleanupExpiredFutures() {
+    static void cleanupExpiredFutures() {
         long now = System.currentTimeMillis();
         int cleaned = 0;
 
@@ -130,7 +138,8 @@ public class RequestFutureHolder {
                 it.remove();
                 if (future != null && !future.isDone()) {
                     future.completeExceptionally(
-                            new RuntimeException("Request timeout, cleaned by TTL: " + requestId));
+                            new RpcException(RpcErrorCode.DEADLINE_EXCEEDED,
+                                    "Request timeout, cleaned by TTL: " + requestId));
                 }
                 cleaned++;
             }

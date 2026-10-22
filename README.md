@@ -122,7 +122,7 @@ HelloService service = client.createProxy(HelloService.class);
 String result = service.sayHello("World"); // 像本地方法一样调用
 ```
 
-在创建代理前可调用 `client.setClusterStrategy(new FailbackClusterStrategy(1, 3))`：首次失败仍返回错误，后台在原请求 deadline 内最多补偿 3 次，每次间隔 1 秒。自定义策略只用于 `@RpcIdempotent` 同步方法；未配置时仍使用 Failover，非幂等、异步和泛化调用不启用补偿。`client.shutdown()` 会关闭策略并取消待执行的补偿任务，策略应由一个客户端独占。
+在创建代理前可调用 `client.setClusterStrategy(new FailbackClusterStrategy(1, 3))`：首次失败仍返回错误，后台在原请求 deadline 内最多补偿 3 次，每次间隔 1 秒。自定义策略用于 `@RpcIdempotent` 同步和异步方法；未配置时仍使用 Failover，非幂等方法和泛化调用不启用补偿。`client.shutdown()` 会关闭策略并取消待执行的补偿任务，策略应由一个客户端独占。
 
 ### Spring Boot 引用与扩展
 

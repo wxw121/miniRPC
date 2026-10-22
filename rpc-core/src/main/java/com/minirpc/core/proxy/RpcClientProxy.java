@@ -7,6 +7,7 @@ import com.minirpc.common.protocol.RpcRequest;
 import com.minirpc.common.protocol.RpcResponse;
 import com.minirpc.common.util.RpcUtil;
 import com.minirpc.core.client.NettyClient;
+import com.minirpc.core.client.FutureSupport;
 import com.minirpc.core.annotation.RpcIdempotent;
 import com.minirpc.core.cluster.CircuitBreaker;
 import com.minirpc.core.cluster.ClusterStrategy;
@@ -34,6 +35,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -259,155 +264,74 @@ public class RpcClientProxy implements InvocationHandler {
 
         log.debug("Sending RPC request: {}", request);
 
+        boolean retryable = !genericMode && method.isAnnotationPresent(RpcIdempotent.class);
+
         // 异步模式：返回 CompletableFuture
         if (asyncMode) {
-            return invokeAsync(request);
+            return invokeAsync(request, retryable);
         }
 
         // 同步模式
-        return invokeSync(request, method.isAnnotationPresent(RpcIdempotent.class));
+        return invokeSync(request, retryable);
     }
 
-    /**
-     * 同步执行 RPC，等待最终结果后返回业务数据，失败时抛出异常。
-     *
-     * 1. 先执行限流、熔断检查，不允许调用时直接拒绝请求。
-     * 2. 幂等方法选择自定义策略（未配置则 Failover），其他方法选择 Failfast，再进入默认 Filter 链。
-     * 3. 容错策略每发起一次尝试，都创建本次请求副本，再选址、发送并等待响应。
-     * 4. 根据前台最终结果更新熔断器；失败节点集合属于本次调用，供后台重试继续使用。
-     *
-     * @param request 本次逻辑调用的原始请求
-     * @param retryable 是否允许使用失败重试策略，由接口方法上的 RpcIdempotent 注解决定
-     */
+    /** 同步入口只负责等待共享调用链的业务结果，保留原有异常类型。 */
     private Object invokeSync(RpcRequest request, boolean retryable) {
-        // 每次逻辑调用先获取一个令牌，策略内部重试时不会重新经过此检查。
-        if (!rateLimiter.tryAcquire()) {
-            emitRejectedInvocation(request, RpcErrorCode.OVERLOADED, "rate_limiter");
-            throw new RpcException(RpcErrorCode.OVERLOADED, "Request rate limited, please try again later");
-        }
-
-        // 熔断器决定是否放行本次逻辑调用，最终成功或失败会在下面回报。
-        if (!circuitBreaker.allowRequest()) {
-            emitRejectedInvocation(request, RpcErrorCode.UNAVAILABLE, "circuit_breaker");
-            throw new RpcException(RpcErrorCode.UNAVAILABLE, "Circuit breaker is OPEN, request rejected for: "
-                    + request.getInterfaceName());
-        }
-
-        // 失败节点跟随本次逻辑调用，后台线程不会读到其他请求的节点记录。
-        Set<String> failedNodes = ConcurrentHashMap.newKeySet();
-
-        RpcResponse response;
-        // 由内层 Lambda 共享：首次尝试编号为 0，后续重试依次为 1、2……
-        AtomicInteger attempts = new AtomicInteger();
+        CompletableFuture<Object> result = invokeAsync(request, retryable);
         try {
-            // 幂等方法允许按策略重试；其他方法只尝试一次，避免重试造成重复业务操作。
-            ClusterStrategy strategy = retryable
-                    ? (clusterStrategy == null ? failoverStrategy : clusterStrategy)
-                    : failfastStrategy;
-
-            // 前台组件执行顺序（Failback 可在后台继续执行内层 Lambda）：
-            // FilterChain → TraceFilter（设置 traceId）→ MetricsFilter（开始统计）
-            // → ClusterStrategy.invoke → Supplier.get()（执行内层 Lambda）
-            // → copyForAttempt（创建本次请求副本）→ doInvoke（选址）→ NettyClient.sendSync（发送并等待响应）。
-            // doInvoke 的选址步骤：ServiceDiscovery → 失败节点过滤 / EndpointHealthTracker → LoadBalancer；
-            // 直连模式跳过这些选址组件，直接向配置地址发送。
-            // 正常返回：doInvoke → 容错策略 → MetricsFilter（记录最终结果）→ TraceFilter（收尾）→ 本方法。
-            // Failover 重试时，只再次执行内层 Lambda：copyForAttempt → doInvoke → sendSync。
-            // 因此 Filter 链只进入一次，MetricsFilter 的耗时包含整个重试过程和退避等待。
-            response = filterChain.execute(request, req -> strategy.invoke(req, () -> {
-                // getAndIncrement() 先返回当前编号再加一；副本保留原 deadline、traceId，并记录本次重试编号。
-                RpcRequest attemptRequest = copyForAttempt(req, attempts.getAndIncrement());
-                return doInvoke(attemptRequest, failedNodes);
-            }));
-        } catch (Exception e) {
-            // 调用链以异常结束时，向熔断器记录一次失败，并将异常继续交给调用方。
-            circuitBreaker.recordFailure();
-            throw e;
+            return result.get();
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            result.cancel(false);
+            throw new RpcException(RpcErrorCode.CANCELLED, "RPC wait interrupted", failure);
+        } catch (ExecutionException failure) {
+            Throwable cause = FutureSupport.unwrap(failure);
+            if (cause instanceof RpcException rpcException) throw rpcException;
+            throw new RpcException("RPC call failed: " + cause.getMessage(), cause);
         }
-
-        // 容错策略也可能正常返回失败响应，需要在这里将其转换为调用异常。
-        if (response.getStatus() == RpcResponse.STATUS_FAIL) {
-            circuitBreaker.recordFailure();
-            throw new RpcException(response.getErrorCode(), "RPC call failed: " + response.getErrorMessage());
-        }
-
-        // 熔断器按整个逻辑调用的最终结果记账，成功后将响应中的业务数据返回给调用方。
-        circuitBreaker.recordSuccess();
-        return response.getData();
     }
 
     /**
-     * 发起异步 RPC，返回承载业务结果的 Future，本方法不主动等待远端业务响应。
-     *
-     * 1. 执行限流、熔断检查；不允许调用时返回已经异常完成的 Future。
-     * 2. 确定目标地址：直连模式使用配置地址，注册中心模式通过服务发现和负载均衡选择节点。
-     * 3. 调用 NettyClient.sendAsync() 获取响应 Future，再用 thenApply() 转换为业务结果 Future。
-     * 4. 收到正常响应后检查状态，记录熔断器结果；成功提取业务数据，失败让业务结果 Future 异常完成。
-     *
-     * 当前异步路径直接选址和发送，未接入同步路径的 FilterChain、容错重试和 EndpointHealthTracker。
-     * 前置服务发现、获取连接等操作仍可能同步等待，因此整个方法并非完全不阻塞。
-     *
-     * @param request 本次调用的请求
-     * @return 业务数据的 Future；检查失败或调用失败时，可通过异常回调处理
+     * 同步和异步共用：准入 → FilterChain → 容错策略 → 请求副本 → 选址与异步发送。
+     * 内置策略不阻塞等待响应或退避；服务发现和获取连接仍可能同步等待。
      */
-    private CompletableFuture<Object> invokeAsync(RpcRequest request) {
-        // 限流失败时保留拒绝事件，并通过失败 Future 将错误交给调用方。
+    private CompletableFuture<Object> invokeAsync(RpcRequest request, boolean retryable) {
         if (!rateLimiter.tryAcquire()) {
             emitRejectedInvocation(request, RpcErrorCode.OVERLOADED, "rate_limiter");
             return CompletableFuture.failedFuture(
                     new RpcException(RpcErrorCode.OVERLOADED, "Request rate limited"));
         }
-
-        // 熔断器未放行时立即返回失败 Future，不再选址或发送请求。
         if (!circuitBreaker.allowRequest()) {
             emitRejectedInvocation(request, RpcErrorCode.UNAVAILABLE, "circuit_breaker");
             return CompletableFuture.failedFuture(
                     new RpcException(RpcErrorCode.UNAVAILABLE, "Circuit breaker is OPEN"));
         }
-
-        // 正常发起顺序：TokenBucketRateLimiter → CircuitBreaker → ServiceDiscovery → LoadBalancer → NettyClient.sendAsync。
-        // 直连模式跳过服务发现和负载均衡；这里的选址在当前调用线程中执行。
-        String targetHost;
-        int targetPort;
-        if (directMode) {
-            targetHost = host;
-            targetPort = port;
-        } else {
-            String serviceName = request.getInterfaceName();
-            // 获取与接口、版本和分组匹配的实例；无候选节点时以失败 Future 结束本次调用。
-            List<ServiceInstance> instances = serviceDiscovery.getInstances(
-                    serviceName, request.getVersion(), request.getGroup());
-            if (instances == null || instances.isEmpty()) {
-                return CompletableFuture.failedFuture(
-                        new RpcException(RpcErrorCode.UNAVAILABLE, "No available service instance for: " + serviceName));
+        Set<String> failedNodes = ConcurrentHashMap.newKeySet();
+        AtomicInteger attempts = new AtomicInteger();
+        ClusterStrategy strategy = retryable
+                ? (clusterStrategy == null ? failoverStrategy : clusterStrategy) : failfastStrategy;
+        CompletableFuture<RpcResponse> response = filterChain.executeAsync(request, req -> {
+            CompletableFuture<RpcResponse> invocation = strategy.invokeAsync(req,
+                    () -> doInvokeAsync(copyForAttempt(req, attempts.getAndIncrement()), failedNodes));
+            long remaining = req.getContext().getDeadlineEpochMillis() - System.currentTimeMillis();
+            return invocation.orTimeout(Math.max(0, remaining), TimeUnit.MILLISECONDS);
+        });
+        return FutureSupport.handle(response, (value, failure) -> {
+            if (failure != null) {
+                if (failure instanceof CancellationException) circuitBreaker.recordCancellation();
+                else circuitBreaker.recordFailure();
+                if (failure instanceof TimeoutException) {
+                    throw new RpcException(RpcErrorCode.DEADLINE_EXCEEDED, "RPC deadline exceeded", failure);
+                }
+                throw FutureSupport.propagate(failure);
             }
-            // 从候选列表中选择一个节点；当前异步路径没有额外过滤被 EndpointHealthTracker 隔离的节点。
-            ServiceInstance instance = loadBalancer.select(instances, request.getRequestId());
-            if (instance == null) {
-                return CompletableFuture.failedFuture(
-                        new RpcException(RpcErrorCode.UNAVAILABLE,
-                                "No available service instance after load balance for: " + serviceName));
+            if (value.getStatus() == RpcResponse.STATUS_FAIL) {
+                circuitBreaker.recordFailure();
+                throw new RpcException(value.getErrorCode(), "RPC call failed: " + value.getErrorMessage());
             }
-            targetHost = instance.getHost();
-            targetPort = instance.getPort();
-        }
-
-        // 响应处理顺序：RpcClientHandler → RequestFutureHolder.complete → 响应 Future 完成 → thenApply → 业务结果 Future 完成。
-        // sendAsync 返回 CompletableFuture<RpcResponse>，thenApply 返回一个新的 CompletableFuture<Object>。
-        // thenApply 只在响应 Future 正常完成时执行；底层异常完成会直接传播给新 Future，不进入下面的回调。
-        return nettyClient.sendAsync(targetHost, targetPort, request)
-                .thenApply(response -> {
-                    // Future 正常完成只代表拿到了响应，响应自身仍可能表示服务端处理失败。
-                    if (response.getStatus() == RpcResponse.STATUS_FAIL) {
-                        circuitBreaker.recordFailure();
-                        // 在回调内抛异常会让业务结果 Future 异常完成，交给调用方的异常处理逻辑。
-                        throw new RpcException(response.getErrorCode(),
-                                "RPC call failed: " + response.getErrorMessage());
-                    }
-                    // 成功时记录熔断器结果，并将响应中的业务数据作为新 Future 的完成值。
-                    circuitBreaker.recordSuccess();
-                    return response.getData();
-                });
+            circuitBreaker.recordSuccess();
+            return value.getData();
+        });
     }
 
     /**
@@ -428,20 +352,21 @@ public class RpcClientProxy implements InvocationHandler {
     }
 
     /**
-     * 执行一次 RPC 尝试：选址、发送并等待响应，记录本次尝试的事件和节点健康状态。
+     * 执行一次 RPC 尝试：选址、异步发送，在完成回调中记录事件和节点健康状态。
      *
      * 1. 获取目标：直连使用配置地址，注册中心模式按接口、版本和分组获取候选节点。
      * 2. 筛选节点：优先避开本次逻辑调用中抛过异常的节点，再检查隔离状态或申请恢复探测。
-     * 3. 发送请求：通过负载均衡确定目标节点，调用 NettyClient.sendSync() 等待响应。
+     * 3. 发送请求：通过负载均衡确定目标节点，调用 NettyClient.sendAsync() 获取响应 Future。
      * 4. 记录结果：回报调用事件、更新节点健康，并返回响应或继续抛出异常。
      *
-     * 注册中心模式：ServiceDiscovery → 失败节点过滤 → EndpointHealthTracker → LoadBalancer → NettyClient.sendSync。
-     * 直连模式：配置地址 → NettyClient.sendSync，跳过服务发现和节点筛选。
+     * 注册中心模式：ServiceDiscovery → 失败节点过滤 → EndpointHealthTracker → LoadBalancer → NettyClient.sendAsync。
+     * 直连模式：配置地址 → NettyClient.sendAsync，跳过服务发现和节点筛选。
      * 本方法只执行一次尝试，是否重试由外层容错策略决定。
      */
-    private RpcResponse doInvoke(RpcRequest request, Set<String> failedNodes) {
+    private CompletableFuture<RpcResponse> doInvokeAsync(RpcRequest request, Set<String> failedNodes) {
         String targetHost;
         int targetPort;
+        boolean recoveryAttempt = false;
 
         if (directMode) {
             // 直连时始终使用指定地址，重试也不会切换到其他节点。
@@ -487,6 +412,7 @@ public class RpcClientProxy implements InvocationHandler {
                 // 探测节点成为唯一候选，避免申请了探测资格后，负载均衡却选中其他健康节点。
                 // 探测使用这次真实 RPC 请求，其成功或失败会在下面回报给健康记录器。
                 healthyInstances = List.of(recoveryProbe);
+                recoveryAttempt = true;
             }
             if (healthyInstances.isEmpty()) {
                 // 没有普通可用节点，也未取得探测资格，向上层报告本次选址失败。
@@ -505,34 +431,43 @@ public class RpcClientProxy implements InvocationHandler {
             log.debug("Selected instance: {} for service: {}", instance.getAddress(), serviceName);
         }
 
-        // 从发送前开始计时，本次事件的耗时不包含上面的服务发现和节点筛选。
         long startedNanos = System.nanoTime();
+        String endpoint = targetHost + ":" + targetPort;
+        boolean isRecoveryAttempt = recoveryAttempt;
+        CompletableFuture<RpcResponse> transport;
         try {
-            // 同步发送并等待响应；内部由 Future 将网络接收结果交回当前调用线程。
-            RpcResponse response = nettyClient.sendSync(targetHost, targetPort, request);
-            // 收到响应后报告本次尝试：成功时错误码为 null，失败响应保留服务端错误码。
-            emitInvocation(request, response.getStatus() == RpcResponse.STATUS_FAIL ? response.getErrorCode() : null,
-                    startedNanos, targetHost + ":" + targetPort);
-            if (response.getStatus() == RpcResponse.STATUS_SUCCESS) {
-                // 清除该节点的失败和隔离记录；如果本次是恢复探测，节点由此恢复可用。
-                endpointHealthTracker.recordSuccess(targetHost + ":" + targetPort);
-            } else {
-                // 失败响应与异常一样避开当前节点，供后续前台或后台重试选址。
-                failedNodes.add(targetHost + ":" + targetPort);
-                endpointHealthTracker.recordFailure(targetHost + ":" + targetPort);
-            }
-            // 保留完整响应，交给外层策略决定是否重试，再由 invokeSync() 提取业务数据。
-            return response;
-        } catch (Exception e) {
-            // 将抛出异常的节点加入本次调用的失败集合，供下一次尝试优先排除，并更新节点健康。
-            failedNodes.add(targetHost + ":" + targetPort);
-            endpointHealthTracker.recordFailure(targetHost + ":" + targetPort);
-            // RpcException 使用自身错误码，其他异常按服务不可用报告，然后将原异常继续向上抛出。
-            RpcErrorCode errorCode = e instanceof RpcException rpcException
-                    ? rpcException.getErrorCode() : RpcErrorCode.UNAVAILABLE;
-            emitInvocation(request, errorCode, startedNanos, targetHost + ":" + targetPort);
-            throw e;
+            transport = nettyClient.sendAsync(targetHost, targetPort, request);
+            long remaining = request.getContext().getDeadlineEpochMillis() - System.currentTimeMillis();
+            transport.orTimeout(Math.max(0, remaining), TimeUnit.MILLISECONDS);
+        } catch (Exception failure) {
+            transport = CompletableFuture.failedFuture(failure);
         }
+        return FutureSupport.handle(transport, (response, failure) -> {
+            if (failure instanceof TimeoutException) {
+                failure = new RpcException(RpcErrorCode.DEADLINE_EXCEEDED, "RPC deadline exceeded", failure);
+            }
+            if (failure != null) {
+                if (failure instanceof CancellationException) {
+                    if (isRecoveryAttempt) endpointHealthTracker.releaseRecoveryProbe(endpoint);
+                } else {
+                    failedNodes.add(endpoint);
+                    endpointHealthTracker.recordFailure(endpoint);
+                }
+                RpcErrorCode code = failure instanceof RpcException rpcException ? rpcException.getErrorCode()
+                        : failure instanceof CancellationException ? RpcErrorCode.CANCELLED : RpcErrorCode.UNAVAILABLE;
+                emitInvocation(request, code, startedNanos, endpoint);
+                throw FutureSupport.propagate(failure);
+            }
+            boolean success = response.getStatus() == RpcResponse.STATUS_SUCCESS;
+            if (success) {
+                endpointHealthTracker.recordSuccess(endpoint);
+            } else {
+                failedNodes.add(endpoint);
+                endpointHealthTracker.recordFailure(endpoint);
+            }
+            emitInvocation(request, success ? null : response.getErrorCode(), startedNanos, endpoint);
+            return response;
+        });
     }
 
     private void emitRejectedInvocation(RpcRequest request, RpcErrorCode errorCode, String reason) {

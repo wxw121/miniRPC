@@ -6,6 +6,7 @@ import com.minirpc.common.protocol.RpcRequest;
 import com.minirpc.common.protocol.RpcResponse;
 import com.minirpc.core.annotation.RpcIdempotent;
 import com.minirpc.core.client.NettyClient;
+import java.util.concurrent.CompletableFuture;
 import com.minirpc.core.cluster.EndpointHealthTracker;
 import com.minirpc.core.config.RpcConfig;
 import com.minirpc.core.loadbalance.LoadBalancer;
@@ -95,7 +96,7 @@ class RpcRetryPolicyIntegrationTest {
         }
 
         @Override
-        public RpcResponse sendSync(String host, int port, RpcRequest request) {
+        public CompletableFuture<RpcResponse> sendAsync(String host, int port, RpcRequest request) {
             if (failureDelayMillis > 0) {
                 try {
                     Thread.sleep(failureDelayMillis);
@@ -165,9 +166,9 @@ class RpcRetryPolicyIntegrationTest {
         }
 
         @Override
-        public RpcResponse sendSync(String host, int port, RpcRequest request) {
+        public CompletableFuture<RpcResponse> sendAsync(String host, int port, RpcRequest request) {
             calls++;
-            return RpcResponse.fail(request.getRequestId(), errorCode, "simulated server failure");
+            return CompletableFuture.completedFuture(RpcResponse.fail(request.getRequestId(), errorCode, "simulated server failure"));
         }
     }
 
@@ -179,9 +180,9 @@ class RpcRetryPolicyIntegrationTest {
         }
 
         @Override
-        public RpcResponse sendSync(String host, int port, RpcRequest request) {
+        public CompletableFuture<RpcResponse> sendAsync(String host, int port, RpcRequest request) {
             addresses.add(host + ":" + port);
-            return RpcResponse.success(request.getRequestId(), "ok");
+            return CompletableFuture.completedFuture(RpcResponse.success(request.getRequestId(), "ok"));
         }
     }
 

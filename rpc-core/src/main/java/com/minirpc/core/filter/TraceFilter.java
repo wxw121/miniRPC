@@ -8,6 +8,8 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 
 /**
  * 链路追踪 Filter
@@ -22,6 +24,29 @@ public class TraceFilter implements RpcFilter {
     private static final Logger log = LoggerFactory.getLogger(TraceFilter.class);
 
     public static final String TRACE_ID_KEY = "traceId";
+
+    @Override
+    public CompletableFuture<RpcResponse> filterAsync(RpcRequest request,
+            Function<RpcRequest, CompletableFuture<RpcResponse>> invoker) {
+        RpcContext context = request.getContext();
+        if (context == null) {
+            context = new RpcContext();
+            request.setContext(context);
+        }
+        String previous = MDC.get(TRACE_ID_KEY);
+        String trace = context.getTraceId();
+        if (trace == null || trace.isEmpty()) trace = previous;
+        if (trace == null || trace.isEmpty()) trace = generateTraceId();
+        context.setTraceId(trace);
+        MDC.put(TRACE_ID_KEY, trace);
+        try {
+            return invoker.apply(request);
+        } finally {
+            // Restore this caller's MDC now, not later on a response thread.
+            if (previous == null) MDC.remove(TRACE_ID_KEY);
+            else MDC.put(TRACE_ID_KEY, previous);
+        }
+    }
 
     @Override
     public RpcResponse filter(RpcRequest request, FilterInvoker invoker) {

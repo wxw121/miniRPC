@@ -114,7 +114,7 @@
 
 `RpcCancellation` 是取消控制消息的消息体，仅保存 `String requestId`，用于定位本连接上尚未开始执行的请求。
 
-底层 `NettyClient.sendAsync()` 返回的原始 Future 被取消时，会清理本地等待记录，并在请求已写出、连接仍可用时发送取消帧。普通超时不自动发送取消消息。当前异步代理返回的是 `thenApply()` 派生 Future，尚未把它的取消操作转发到底层 Future，因此不能把底层取消传播的能力直接等同于代理 API 的保证。
+底层 `NettyClient.sendAsync()` 返回的原始 Future 被取消时，会清理本地等待记录，并在请求已写出、连接仍可用时发送取消帧。异步代理返回的业务 Future 会逐层传递取消到底层当前请求，并停止后续 Failover 尝试。普通超时以 `DEADLINE_EXCEEDED` 结束，不发送取消帧。服务端仍只取消尚未开始执行的排队任务。
 
 ## 五、编解码流程
 

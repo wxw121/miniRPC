@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -16,6 +18,30 @@ import static org.junit.jupiter.api.Assertions.*;
  * 验证 Filter 的执行顺序、链式调用、空链处理
  */
 class FilterChainTest {
+
+    @Test
+    void asyncChainPreservesLegacyFilterOrderAndReplacementRequest() throws Exception {
+        FilterChain chain = new FilterChain();
+        List<String> order = java.util.Collections.synchronizedList(new ArrayList<>());
+        RpcRequest request = new RpcRequest();
+        RpcRequest replacement = new RpcRequest();
+        chain.addFilter((req, next) -> {
+            order.add("before");
+            RpcResponse response = next.invoke(replacement);
+            order.add("after");
+            return RpcResponse.success("id", response.getData() + "-filtered");
+        });
+        CompletableFuture<RpcResponse> transport = new CompletableFuture<>();
+        CompletableFuture<RpcResponse> result = chain.executeAsync(request, req -> {
+            assertSame(replacement, req);
+            order.add("send");
+            return transport;
+        });
+        assertFalse(result.isDone());
+        transport.complete(RpcResponse.success("id", "ok"));
+        assertEquals("ok-filtered", result.get(2, TimeUnit.SECONDS).getData());
+        assertEquals(List.of("before", "send", "after"), order);
+    }
 
     @Test
     @DisplayName("空 FilterChain 直接执行 finalInvoker")

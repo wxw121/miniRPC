@@ -9,6 +9,9 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CancellationException;
+import com.minirpc.core.client.FutureSupport;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -84,6 +87,60 @@ public class FailbackClusterStrategy implements ClusterStrategy {
             scheduleRetry(request, invoker, 1, response.getErrorCode());
         }
         return response;
+    }
+
+    @Override
+    public CompletableFuture<RpcResponse> invokeAsync(
+            RpcRequest request, Supplier<CompletableFuture<RpcResponse>> invoker) {
+        if (closed.get()) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Failback strategy is closed"));
+        }
+        CompletableFuture<RpcResponse> first;
+        try {
+            first = invoker.get();
+        } catch (Exception failure) {
+            first = CompletableFuture.failedFuture(failure);
+        }
+        return FutureSupport.handle(first, (response, failure) -> {
+            if (!(failure instanceof CancellationException)
+                    && (failure != null || response.getStatus() != RpcResponse.STATUS_SUCCESS)) {
+                scheduleAsyncRetry(request, invoker, 1,
+                        failure == null ? response.getErrorCode() : errorCodeOf(failure));
+            }
+            if (failure != null) throw FutureSupport.propagate(failure);
+            return response;
+        });
+    }
+
+    private void scheduleAsyncRetry(RpcRequest request, Supplier<CompletableFuture<RpcResponse>> invoker,
+                                    int attempt, RpcErrorCode code) {
+        long now = currentTimeMillis.getAsLong();
+        long deadline = request.getContext() == null ? 0 : request.getContext().getDeadlineEpochMillis();
+        if (closed.get() || retryPolicy.nextDelayMillis(request, attempt, code, now).isEmpty()
+                || (deadline > 0 && TimeUnit.SECONDS.toMillis(retryDelaySeconds) >= deadline - now)) {
+            return;
+        }
+        try {
+            retryScheduler.schedule(() -> {
+                if (closed.get() || retryPolicy.isDeadlineExceeded(request, currentTimeMillis.getAsLong())) return;
+                CompletableFuture<RpcResponse> next;
+                try {
+                    next = invoker.get();
+                } catch (Exception failure) {
+                    next = CompletableFuture.failedFuture(failure);
+                }
+                next.whenComplete((response, error) -> {
+                    Throwable failure = error == null ? null : FutureSupport.unwrap(error);
+                    if (!(failure instanceof CancellationException)
+                            && (failure != null || response.getStatus() != RpcResponse.STATUS_SUCCESS)) {
+                        scheduleAsyncRetry(request, invoker, attempt + 1,
+                                failure == null ? response.getErrorCode() : errorCodeOf(failure));
+                    }
+                });
+            }, retryDelaySeconds, TimeUnit.SECONDS);
+        } catch (RejectedExecutionException ignored) {
+            // Closing the scheduler must not replace the original RPC failure.
+        }
     }
 
     private void scheduleRetry(RpcRequest request, Supplier<RpcResponse> invoker,

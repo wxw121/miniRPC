@@ -4,6 +4,11 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 2026-10-22
+
+- 同步、异步代理统一 Future 调用链，异步接入幂等准入、Failover/Failback、端点隔离与恢复探测、追踪及指标。
+- 内置重试通过延迟调度执行，保留同步 SPI 兼容桥接；补齐异常 Future 的熔断统计、截止时间与代理取消传播。
+
 ## [Unreleased]
 
 ### Added

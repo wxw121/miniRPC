@@ -8,6 +8,9 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
+import com.minirpc.core.client.FutureSupport;
 
 /**
  * 调用统计 Filter（简易 Metrics）
@@ -25,6 +28,30 @@ public class MetricsFilter implements RpcFilter {
      * 服务级别统计：serviceName -> Metrics
      */
     private static final Map<String, ServiceMetrics> METRICS_MAP = new ConcurrentHashMap<>();
+
+    @Override
+    public CompletableFuture<RpcResponse> filterAsync(RpcRequest request,
+            Function<RpcRequest, CompletableFuture<RpcResponse>> invoker) {
+        ServiceMetrics metrics = METRICS_MAP.computeIfAbsent(request.getInterfaceName(), k -> new ServiceMetrics());
+        long start = System.currentTimeMillis();
+        metrics.totalCalls.incrementAndGet();
+        CompletableFuture<RpcResponse> response;
+        try {
+            response = invoker.apply(request);
+        } catch (Exception failure) {
+            response = CompletableFuture.failedFuture(failure);
+        }
+        return FutureSupport.handle(response, (value, failure) -> {
+            metrics.totalRt.addAndGet(System.currentTimeMillis() - start);
+            if (failure == null && value.getStatus() == RpcResponse.STATUS_SUCCESS) {
+                metrics.successCalls.incrementAndGet();
+            } else {
+                metrics.failedCalls.incrementAndGet();
+            }
+            if (failure != null) throw FutureSupport.propagate(failure);
+            return value;
+        });
+    }
 
     @Override
     public RpcResponse filter(RpcRequest request, FilterInvoker invoker) {

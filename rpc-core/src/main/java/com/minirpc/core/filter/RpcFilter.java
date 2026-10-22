@@ -2,6 +2,9 @@ package com.minirpc.core.filter;
 
 import com.minirpc.common.protocol.RpcRequest;
 import com.minirpc.common.protocol.RpcResponse;
+import com.minirpc.core.client.FutureSupport;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 
 /**
  * RPC Filter SPI 接口（责任链模式）
@@ -19,6 +22,12 @@ public interface RpcFilter {
      * @return RPC 响应
      */
     RpcResponse filter(RpcRequest request, FilterInvoker invoker);
+
+    /** Compatibility bridge for synchronous filters; native async filters override it. */
+    default CompletableFuture<RpcResponse> filterAsync(RpcRequest request,
+            Function<RpcRequest, CompletableFuture<RpcResponse>> invoker) {
+        return FutureSupport.adaptFunction(sync -> filter(request, sync::apply), invoker);
+    }
 
     /**
      * 过滤器优先级（数值越小优先级越高）

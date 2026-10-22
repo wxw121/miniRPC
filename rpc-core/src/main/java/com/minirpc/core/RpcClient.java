@@ -196,8 +196,8 @@ public class RpcClient {
     }
 
     /**
-     * 创建代理前配置幂等同步方法使用的策略；只能配置一次，由客户端在 shutdown 时关闭。
-     * 非幂等方法仍使用 Failfast，异步和泛化调用不启用重试。
+     * 创建代理前配置幂等方法使用的策略；同步与异步代理共用，由客户端在 shutdown 时关闭。
+     * 非幂等方法和泛化调用仍使用 Failfast。
      */
     public synchronized void setClusterStrategy(ClusterStrategy strategy) {
         Objects.requireNonNull(strategy, "clusterStrategy must not be null");

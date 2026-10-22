@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.function.Supplier;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Failfast 容错策略（快速失败）
@@ -17,6 +18,16 @@ import java.util.function.Supplier;
 public class FailfastClusterStrategy implements ClusterStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(FailfastClusterStrategy.class);
+
+    @Override
+    public CompletableFuture<RpcResponse> invokeAsync(
+            RpcRequest request, Supplier<CompletableFuture<RpcResponse>> invoker) {
+        try {
+            return invoker.get();
+        } catch (Exception failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
+    }
 
     @Override
     public RpcResponse invoke(RpcRequest request, Supplier<RpcResponse> invoker) {

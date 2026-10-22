@@ -9,6 +9,11 @@ import org.slf4j.LoggerFactory;
 
 import java.util.OptionalLong;
 import java.util.function.Supplier;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.atomic.AtomicReference;
+import com.minirpc.core.client.FutureSupport;
 
 /**
  * Failover 容错策略（失败重试）
@@ -44,6 +49,61 @@ public class FailoverClusterStrategy implements ClusterStrategy {
         this.maxRetries = maxRetries;
         this.baseDelayMs = baseDelayMs;
         this.retryPolicy = new RetryPolicy(maxRetries, baseDelayMs, maxBackoffMs);
+    }
+
+    @Override
+    public CompletableFuture<RpcResponse> invokeAsync(
+            RpcRequest request, Supplier<CompletableFuture<RpcResponse>> invoker) {
+        CompletableFuture<RpcResponse> result = new CompletableFuture<>();
+        AtomicReference<CompletableFuture<RpcResponse>> active = new AtomicReference<>();
+        result.whenComplete((response, failure) -> {
+            if (result.isCancelled()) {
+                CompletableFuture<RpcResponse> attempt = active.get();
+                if (attempt != null) attempt.cancel(false);
+            }
+        });
+        class RetryLoop {
+            void attempt(int index) {
+                if (result.isDone()) return;
+                if (retryPolicy.isDeadlineExceeded(request, System.currentTimeMillis())) {
+                    result.completeExceptionally(deadlineExceeded(request));
+                    return;
+                }
+                CompletableFuture<RpcResponse> current;
+                try {
+                    current = invoker.get();
+                } catch (Exception failure) {
+                    current = CompletableFuture.failedFuture(failure);
+                }
+                active.set(current);
+                if (result.isCancelled()) current.cancel(false);
+                current.whenComplete((response, error) -> {
+                    if (result.isDone()) return;
+                    Throwable failure = error == null ? null : FutureSupport.unwrap(error);
+                    if (failure instanceof CancellationException) {
+                        result.cancel(false);
+                        return;
+                    }
+                    if (failure == null && response.getStatus() == RpcResponse.STATUS_SUCCESS) {
+                        result.complete(response);
+                        return;
+                    }
+                    RpcErrorCode code = failure == null ? response.getErrorCode() : errorCodeOf(failure);
+                    OptionalLong delay = retryPolicy.nextDelayMillis(
+                            request, index + 1, code, System.currentTimeMillis());
+                    if (delay.isEmpty()) {
+                        if (failure == null) result.complete(response);
+                        else result.completeExceptionally(failure);
+                        return;
+                    }
+                    // Even zero-delay retries leave the response thread before discovery/connection work.
+                    CompletableFuture.delayedExecutor(delay.getAsLong(), TimeUnit.MILLISECONDS)
+                            .execute(() -> attempt(index + 1));
+                });
+            }
+        }
+        new RetryLoop().attempt(0);
+        return result;
     }
 
     /**
@@ -127,7 +187,7 @@ public class FailoverClusterStrategy implements ClusterStrategy {
         }
     }
 
-    private RpcErrorCode errorCodeOf(Exception failure) {
+    private RpcErrorCode errorCodeOf(Throwable failure) {
         Throwable current = failure;
         while (current != null) {
             if (current instanceof RpcException rpcException) {

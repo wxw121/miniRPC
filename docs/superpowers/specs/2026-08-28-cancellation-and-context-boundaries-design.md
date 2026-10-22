@@ -2,7 +2,7 @@
 
 ## Goal
 
-Complete the request-lifecycle design in `docs/EVOLUTION_DESIGN.md`: the Future returned directly by `NettyClient.sendAsync` can request cancellation of a queued remote invocation, and request contexts are sealed with bounded attachments. Implementation notes below reflect the current code as of 2026-10-17.
+Complete the request-lifecycle design in `docs/EVOLUTION_DESIGN.md`: the Future returned directly by `NettyClient.sendAsync` can request cancellation of a queued remote invocation, and request contexts are sealed with bounded attachments. Implementation notes below reflect the current code as of 2026-10-22.
 
 ## Protocol
 
@@ -16,7 +16,7 @@ The decoder maps `CANCEL` bodies only to `RpcCancellation`; encoder rejects a ca
 
 `NettyClient.sendAsync` owns a request's pending future and selected channel. Cancelling its returned future removes it from `RequestFutureHolder` immediately. If the request frame was submitted to an active channel, the client attempts to write at most one `CANCEL` frame on that same channel. It checks for cancellation before writing the request and again afterwards to handle a concurrent cancellation. Timeout and ordinary completion never emit a cancellation frame.
 
-This guarantee applies to the original Future returned by `NettyClient.sendAsync`. `RpcClientProxy.invokeAsync` returns a `thenApply` dependent Future and currently does not forward its cancellation to the original Future. The public async proxy therefore does not yet provide the same cancellation propagation guarantee.
+The shared proxy pipeline preserves cancellation through its business-result, filter, strategy and attempt Futures to the original `NettyClient.sendAsync` Future. Cancelling the public async proxy Future therefore also suppresses later failover attempts and can emit the same transport CANCEL frame. Deadline expiration completes exceptionally without cancelling the transport Future.
 
 ## Server lifecycle
 
@@ -38,4 +38,4 @@ Cancelling a queued task removes its pending-map entry but does not explicitly r
 - Client tests prove cancellation removes the pending Future and writes at most one control frame after a sent request.
 - Handler tests prove a queued invocation is never executed after cancellation, in-flight is released, and a started invocation is not interrupted.
 - Context tests prove unknown keys, mutation after sealing, oversized values, and mutable-map exposure are rejected.
-- These cancellation tests exercise `NettyClient` directly; they do not establish cancellation propagation from the dependent Future returned by the async proxy. Current test results require a fresh test run rather than a status claim in this design document.
+- Client cancellation tests exercise both `NettyClient` directly and the public async proxy, verifying pending-map cleanup and matching CANCEL request IDs. Current test results require a fresh test run rather than a status claim in this design document.

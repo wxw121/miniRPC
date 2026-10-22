@@ -6,6 +6,7 @@ import com.minirpc.common.protocol.RpcRequest;
 import com.minirpc.common.protocol.RpcResponse;
 import com.minirpc.core.annotation.RpcIdempotent;
 import com.minirpc.core.client.NettyClient;
+import java.util.concurrent.CompletableFuture;
 import com.minirpc.core.config.RpcConfig;
 import com.minirpc.core.proxy.RpcClientProxy;
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ class RpcInvocationListenerTest {
         }
 
         @Override
-        public RpcResponse sendSync(String host, int port, RpcRequest request) {
+        public CompletableFuture<RpcResponse> sendAsync(String host, int port, RpcRequest request) {
             throw new RpcException(RpcErrorCode.UNAVAILABLE, "simulated network failure");
         }
     }

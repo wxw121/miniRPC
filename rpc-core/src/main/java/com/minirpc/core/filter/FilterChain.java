@@ -6,6 +6,8 @@ import com.minirpc.common.protocol.RpcResponse;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 
 /**
  * Filter 责任链
@@ -52,5 +54,20 @@ public class FilterChain {
 
     public int getFilterCount() {
         return filters.size();
+    }
+
+    public CompletableFuture<RpcResponse> executeAsync(RpcRequest request,
+            Function<RpcRequest, CompletableFuture<RpcResponse>> finalInvoker) {
+        Function<RpcRequest, CompletableFuture<RpcResponse>> chain = finalInvoker;
+        for (int i = filters.size() - 1; i >= 0; i--) {
+            RpcFilter filter = filters.get(i);
+            Function<RpcRequest, CompletableFuture<RpcResponse>> next = chain;
+            chain = req -> filter.filterAsync(req, next);
+        }
+        try {
+            return chain.apply(request);
+        } catch (Exception failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
     }
 }

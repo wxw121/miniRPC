@@ -78,7 +78,7 @@
 | Failfast | 失败立即报错 | 非幂等写操作 |
 | Failback | 首次失败向调用方报错，后台在原 deadline 内定时补偿 | 可接受首次失败、允许重试的幂等通知 |
 
-默认仅 `@RpcIdempotent` 同步方法使用 Failover，其他方法使用 Failfast。创建代理前可通过 `RpcClient.setClusterStrategy(ClusterStrategy)` 替换幂等同步方法的策略；Starter 自动获取唯一（或 `@Primary`）的 `ClusterStrategy` Bean。例如 `new FailbackClusterStrategy(1, 3)` 表示间隔 1 秒、最多 3 次后台重试（也是无参构造的默认值），仅处理 `UNAVAILABLE` / `OVERLOADED`。补偿不重置 deadline，剩余预算不足时不排队，执行前过期也会停止；它是进程内的有限重试，不保证持久化或最终投递。非幂等、异步和泛化调用不启用补偿。策略由客户端独占，`RpcClient.shutdown()` 会调用其幂等的 `close()`，取消未执行任务并关闭调度器。
+同步、异步代理统一经过限流、熔断、FilterChain、容错策略和端点健康选址；仅标记 `@RpcIdempotent` 的方法使用 Failover，非幂等方法和泛化调用使用 Failfast。创建代理前可通过 `RpcClient.setClusterStrategy(ClusterStrategy)` 替换幂等方法的策略（同步、异步共用）；Starter 自动获取唯一（或 `@Primary`）的 `ClusterStrategy` Bean。例如 `new FailbackClusterStrategy(1, 3)` 表示间隔 1 秒、最多 3 次后台重试（也是无参构造的默认值），仅处理 `UNAVAILABLE` / `OVERLOADED`。补偿不重置 deadline，剩余预算不足时不排队，执行前过期也会停止；它是进程内的有限重试，不保证持久化或最终投递。非幂等方法和泛化调用不启用补偿。策略由客户端独占，`RpcClient.shutdown()` 会调用其幂等的 `close()`，取消未执行任务并关闭调度器。
 
 ## 6. 熔断与限流
 
@@ -111,7 +111,12 @@ CLOSED ──连续失败达阈值──→ OPEN ──超时──→ HALF_OPEN
 **实现**：`RpcClient.createAsyncProxy()`
 
 - 代理方法返回 `CompletableFuture<T>`
-- 底层统一基于 Future，同步调用 = `future.get(timeout)`
+- 同步和异步代理共用 Future 调用链；同步入口等待结果，异步入口直接返回业务 Future
+- 内置 Failover 通过 Future 回调和延迟调度重试，不在响应线程中阻塞等待或休眠；重试共享原 deadline
+- 过滤器按整次逻辑调用统计，事件与端点健康按每次尝试记录；异常完成同样回报熔断器
+- 取消代理 Future 会传递到底层请求，并停止后续 Failover 尝试；超时返回 `DEADLINE_EXCEEDED`，不发送取消帧
+- 同步策略/过滤器扩展接口保持兼容：默认异步入口在 JDK 公共线程池桥接；扩展可覆盖 `invokeAsync` / `filterAsync`，避免桥接线程等待
+- 服务发现和获取连接仍可能同步等待，异步入口并非全程无阻塞
 - 可并行调用多个服务，提升吞吐量
 
 ## 9. 泛化调用
@@ -187,7 +192,7 @@ effectiveWeight = max(1, weight × uptime / warmupPeriod)
 - `@ConditionalOnProperty` 支持开关（`minirpc.enabled`）
 - 服务引用统一使用 `com.minirpc.core.annotation.RpcReference`；Starter 的 `RpcReferenceBeanPostProcessor` 扫描注解字段（含继承字段），自动注入代理
 - `@RpcReference` 支持 `version`、`group`、`timeout`；服务发现使用接口、版本、分组三元组匹配实例。`timeout=0`（默认）沿用全局超时，正数覆盖当前引用的毫秒预算，负数启动失败；不会改变其他引用的配置
-- 仅标记 `@RpcIdempotent` 的同步方法使用自定义 `ClusterStrategy` Bean（未提供则 failover），其他方法默认 fail-fast，避免写操作重复执行
+- 仅标记 `@RpcIdempotent` 的同步和异步方法使用自定义 `ClusterStrategy` Bean（未提供则 failover），其他方法默认 fail-fast，避免写操作重复执行
 - 自动创建的服务端使用应用提供的唯一或 `@Primary` 的 `RpcAuthenticator` Bean，在业务执行前鉴权；无 Bean 时默认放行，多个 Bean 无法唯一选择时启动失败。自定义 `RpcServer` Bean 仍由应用配置
 - 配置前缀 `minirpc.*`，支持注册中心、端口、序列化类型等
 

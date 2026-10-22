@@ -12,6 +12,18 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class CircuitBreakerTest {
 
+    @org.junit.jupiter.api.Test
+    void cancellationReturnsHalfOpenProbePermitWithoutOpeningCircuit() throws Exception {
+        CircuitBreaker breaker = new CircuitBreaker(1, 0, 1);
+        assertTrue(breaker.allowRequest());
+        breaker.recordFailure();
+        Thread.sleep(5);
+        assertTrue(breaker.allowRequest());
+        breaker.recordCancellation();
+        assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+        assertTrue(breaker.allowRequest());
+    }
+
     @Test
     @DisplayName("初始状态为 CLOSED，允许所有请求")
     void testInitialStateClosed() {

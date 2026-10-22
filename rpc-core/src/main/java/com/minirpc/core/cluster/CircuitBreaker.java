@@ -173,4 +173,11 @@ public class CircuitBreaker {
     public State getState() {
         return state.get();
     }
+
+    /** Caller cancellation says nothing about server health; return a half-open probe permit. */
+    public void recordCancellation() {
+        if (state.get() == State.HALF_OPEN) {
+            halfOpenPermits.updateAndGet(permits -> Math.max(0, permits - 1));
+        }
+    }
 }
