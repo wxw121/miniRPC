@@ -31,6 +31,27 @@ MiniRPC 覆盖 RPC 调用的核心链路：**网络通信 → 协议编解码 �
 | 🛬 优雅停机 | 摘流量 → 等缓存 → 等 in-flight → 关连接 |
 | 🧩 Filter 链 | Trace / Metrics 可扩展拦截器 |
 
+## 🏗️ 整体架构
+
+![MiniRPC 中文架构图，左侧为 RPC 请求与响应链路，右侧为 ZooKeeper 服务注册与发现](diagram/minirpc-architecture/minirpc-architecture-zh@2x.png)
+
+[SVG 源图](diagram/minirpc-architecture/minirpc-architecture-zh.svg) · [架构设计与线程模型](docs/ARCHITECTURE.md) · [协议规范](docs/PROTOCOL.md)
+
+### RPC 请求与响应
+
+以同步调用 `helloService.sayHello("World")` 为例。蓝色实线表示调用，青色实线表示响应，紫色虚线表示异步通知或任务提交，橙色实线表示注册中心操作。
+
+- **①–② 生成请求并选址。** JDK 动态代理将方法调用转交给 `RpcClientProxy`。代理把接口、方法、参数和 `requestId` 封装为 `RpcRequest`，调用逻辑随后确定目标实例。
+- **③–④ 发送请求并拆帧。** `NettyClient` 通过连接池复用 TCP 连接，编码并发送请求。服务端的 `LengthFieldBasedFrameDecoder` 根据固定的 9 字节协议头和 `BodyLength` 计算整帧长度。粘包时逐帧切分，半包时保留字节等待后续数据。完整帧交给 `RpcMessageDecoder`，还原成请求对象。
+- **⑤–⑦ 执行业务方法。** `RpcServerHandler` 检查截止时间、停机状态和已启用的认证，通过后向业务线程池提交任务。业务线程从本进程的 `LocalServiceRegistry` 找到 `HelloServiceImpl`，再反射调用 `sayHello`。
+- **⑧ 匹配响应并返回。** 服务端把执行结果封装为 `RpcResponse`，沿同一条 TCP 连接回传。客户端按 `requestId` 在 `RequestFutureHolder` 中找到并完成对应的 Future，同步调用随即返回结果。
+
+### 服务注册、发现与负载均衡
+
+- **注册。** 启用 ZooKeeper 后，服务提供者通过 Curator 注册自己的 `host:port`。服务目录是持久节点，实例地址记录是临时节点，对应的 ZooKeeper 会话失效后会被移除。
+- **发现。** `ServiceDiscovery` 优先读取本地实例缓存，缓存未命中时查询注册中心。建立订阅后，实例变更会触发异步通知，客户端据此刷新缓存。
+- **选址。** 注册中心模式下，客户端的 `LoadBalancer` 每次调用尝试选择一个实例，由 Netty 直连该实例。直连模式下，客户端使用配置的 `host:port`。
+
 ## 📁 模块结构
 
 ```

@@ -1,0 +1,263 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">MiniRPC Architecture</title>
+  <desc id="desc">The sample invokes HelloService from a Java client through a dynamic proxy and a pooled Netty connection. The server splits incoming TCP bytes into frames, decodes the request, checks it, and submits it to the business executor. The service result returns by RPC, with request ID matching on the client. An optional ZooKeeper registry supports client-side discovery, registration, and asynchronous endpoint updates. Its znodes describe services and endpoint instances.</desc>
+  <defs>
+    <style>
+      text { font-family: "Inter", "Segoe UI", Arial, sans-serif; fill: #172b44; }
+      .title { font-size: 46px; font-weight: 700; letter-spacing: -1.4px; }
+      .subtitle { font-size: 19px; fill: #52657b; }
+      .section { font-size: 23px; font-weight: 700; }
+      .name { font-size: 18px; font-weight: 700; }
+      .detail { font-size: 15px; fill: #465e75; }
+      .small { font-size: 14px; fill: #465e75; }
+      .label { font-size: 14px; font-weight: 600; fill: #3e5b75; }
+      .layer { font-size: 13px; font-weight: 700; letter-spacing: 1.15px; }
+      .mono { font-family: "IBM Plex Mono", Consolas, monospace; font-size: 14px; }
+      .panel { fill: #fff; stroke: #d7e1ea; stroke-width: 1.3; }
+      .box { fill: #fff; stroke-width: 1.3; }
+      .blue { stroke: #a5bedb; }
+      .teal { stroke: #a0c8c8; }
+      .amber { stroke: #d9bb9b; }
+      .purple { stroke: #c0b5d7; }
+      .flow { fill: none; stroke: #42658b; stroke-width: 2; stroke-linejoin: round; marker-end: url(#arrow); }
+      .return { fill: none; stroke: #17717a; stroke-width: 2; stroke-linejoin: round; marker-end: url(#reply); }
+      .registry { fill: none; stroke: #8d5c32; stroke-width: 1.75; stroke-linejoin: round; }
+      .async { fill: none; stroke: #835caa; stroke-width: 1.8; stroke-dasharray: 6 4; stroke-linejoin: round; marker-end: url(#event); }
+      .index { font-family: "Inter", "Segoe UI", Arial, sans-serif; font-size: 12px; font-weight: 700; fill: #fff; text-anchor: middle; }
+      .edge-index { font-size: 11px; }
+      .blue-ink { fill: #345c86; }
+      .teal-ink { fill: #266b6c; }
+      .amber-ink { fill: #89592f; }
+      .purple-ink { fill: #6a4b90; }
+      .reply-ink { fill: #176b74; }
+      .icon { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+    <marker id="arrow" viewBox="0 0 9 8" refX="8" refY="4" markerWidth="8" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0 9 4 0 8Z" fill="#42658b"/></marker>
+    <marker id="reply" viewBox="0 0 9 8" refX="8" refY="4" markerWidth="8" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0 9 4 0 8Z" fill="#17717a"/></marker>
+    <marker id="register" viewBox="0 0 9 8" refX="8" refY="4" markerWidth="8" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0 9 4 0 8Z" fill="#8d5c32"/></marker>
+    <marker id="event" viewBox="0 0 9 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M1 0.7 8 4 1 7.3" fill="none" stroke="#835caa" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <g id="terminal" class="icon"><rect x="2.5" y="4.5" width="19" height="15" rx="2.3"/><path d="m6.5 9 3 3-3 3m6.5 0H17"/></g>
+    <g id="code" class="icon"><path d="m8 5.5-6 6.5 6 6.5m8-13 6 6.5-6 6.5m-2-15-4 17"/></g>
+    <g id="server" class="icon"><rect x="2.5" y="3.5" width="19" height="7" rx="1.5"/><rect x="2.5" y="13.5" width="19" height="7" rx="1.5"/><path d="M6.5 7h.1m-.1 10h.1M12 7h5m-5 10h5"/></g>
+    <g id="chip" class="icon"><rect x="5.5" y="5.5" width="13" height="13" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx=".7"/><path d="M9 2.5v3m6-3v3m-6 13v3m6-3v3m3.5-12h3m-3 6h3m-19-6h3m-3 6h3"/></g>
+    <g id="network" class="icon"><rect x="8" y="2.5" width="8" height="5.5" rx="1.1"/><rect x="2" y="16" width="7" height="5.5" rx="1.1"/><rect x="15" y="16" width="7" height="5.5" rx="1.1"/><path d="M12 8v4m-6.5 4v-4h13v4"/></g>
+    <g id="search" class="icon"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 5.5 5.5m-13-10.5h5m-2.5-2.5v5"/></g>
+    <g id="database" class="icon"><ellipse cx="12" cy="5.5" rx="8.5" ry="3.5"/><path d="M3.5 5.5v13c0 1.9 3.8 3.5 8.5 3.5s8.5-1.6 8.5-3.5v-13m-17 6.5c0 1.9 3.8 3.5 8.5 3.5s8.5-1.6 8.5-3.5"/></g>
+    <g id="plug" class="icon"><path d="M8 3v5m8-5v5M5 8h14m-2 0v3a5 5 0 0 1-10 0V8m5 8v5"/></g>
+    <g id="clock" class="icon"><circle cx="12" cy="12" r="9"/><path d="M12 7.2v5.2l3 1.8"/></g>
+  </defs>
+
+  <rect width="1600" height="900" fill="#f6f8fb"/>
+  <path d="M49 113H1551" stroke="#cfdce8" stroke-width="1.4"/>
+  <path d="M49 113H187" stroke="#416c9c" stroke-width="2.6"/>
+  <text class="title" x="48" y="65">MiniRPC Architecture</text>
+  <text class="subtitle" x="50" y="95">From a Java method call to a remote result</text>
+
+  <g id="rpc-lifecycle">
+    <rect class="panel" x="48" y="136" width="1008" height="642" rx="12"/>
+    <text class="section" x="70" y="173">RPC request lifecycle</text>
+
+    <rect x="64" y="192" width="976" height="68" rx="7" fill="#edf3fc"/>
+    <rect x="64" y="278" width="976" height="75" rx="7" fill="#edf7f6"/>
+    <rect x="64" y="397" width="976" height="94" rx="7" fill="#fcf4e9"/>
+    <rect x="64" y="517" width="976" height="155" rx="7" fill="#edf7f6"/>
+    <rect x="64" y="697" width="976" height="59" rx="7" fill="#edf3fc"/>
+    <path d="M207 202v48m0 38v55m0 64v74m0 46v135m0 45v39" stroke="#cbd9e4" stroke-width="1"/>
+
+    <g aria-label="Synchronous request and response">
+      <path class="flow" d="M389 253V283"/>
+      <path class="flow" d="M389 348V410"/>
+      <path class="flow" d="M546 431H713"/>
+      <path class="return" d="M714 462H547"/>
+      <path class="flow" d="M870 486V520"/>
+      <path class="async" d="M870 571V602"/>
+      <path class="flow" d="M870 667V701"/>
+      <path class="return" d="M746 702V668"/>
+      <path class="return" d="M1024 635H1034V461H1025"/>
+      <path class="return" d="M389 478V530"/>
+    </g>
+
+    <text class="layer blue-ink" x="82" y="222">BUSINESS</text>
+    <text class="small" x="82" y="242">Consumer entry</text>
+    <text class="layer teal-ink" x="82" y="311">APPLICATION</text>
+    <text class="small" x="82" y="331">Client invocation</text>
+    <text class="layer amber-ink" x="82" y="429">MIDDLEWARE</text>
+    <text class="small" x="82" y="450">RPC over TCP</text>
+    <text class="small" x="82" y="470">TLS / mTLS option</text>
+    <text class="layer teal-ink" x="82" y="547">APPLICATION</text>
+    <text class="small" x="82" y="567">Dispatch &amp; reply</text>
+    <text class="layer blue-ink" x="82" y="725">BUSINESS</text>
+    <text class="small" x="82" y="745">Provider method</text>
+
+    <g id="consumer-application">
+      <rect class="box blue" x="232" y="198" width="314" height="55" rx="7"/>
+      <use xlink:href="#terminal" x="249" y="213" color="#416c9c"/>
+      <text class="name" x="284" y="220">Consumer application</text>
+      <text class="mono" x="284" y="240">HelloService.sayHello("World")</text>
+      <circle cx="525" cy="214" r="11" fill="#416c9c"/><text class="index" x="525" y="218">1</text>
+    </g>
+    <text class="label" x="405" y="272">Java method call</text>
+
+    <g id="client-proxy">
+      <rect class="box teal" x="232" y="284" width="314" height="64" rx="7"/>
+      <use xlink:href="#code" x="249" y="302" color="#307c7b"/>
+      <text class="name" x="284" y="309">RpcClientProxy</text>
+      <text class="detail" x="284" y="331">JDK proxy · policies &amp; filters</text>
+      <circle cx="525" cy="300" r="11" fill="#307474"/><text class="index" x="525" y="304">2</text>
+    </g>
+    <text class="label" x="405" y="377">RpcRequest + selected endpoint</text>
+
+    <g id="spring-boot-integration">
+      <rect class="box teal" x="714" y="284" width="310" height="64" rx="7"/>
+      <use xlink:href="#plug" x="730" y="303" color="#307c7b"/>
+      <text class="name" x="765" y="309">Spring Boot Starter</text>
+      <text class="detail" x="765" y="331">Optional client / server auto-config</text>
+    </g>
+
+    <g id="client-transport">
+      <rect class="box amber" x="232" y="411" width="314" height="67" rx="7"/>
+      <use xlink:href="#network" x="249" y="430" color="#95643a"/>
+      <text class="name" x="284" y="437">NettyClient</text>
+      <text class="detail" x="284" y="459">ChannelPool · RPC codec</text>
+      <circle cx="525" cy="427" r="11" fill="#95643a"/><text class="index" x="525" y="431">3</text>
+    </g>
+    <text class="label" x="630" y="421" text-anchor="middle">RPC request</text>
+    <circle cx="574" cy="477" r="9" fill="#17717a"/><text class="index edge-index" x="574" y="481">8</text>
+    <text class="label reply-ink" x="590" y="482">RPC response</text>
+
+    <g id="provider-transport">
+      <rect class="box amber" x="714" y="403" width="310" height="83" rx="7"/>
+      <use xlink:href="#server" x="730" y="417" color="#95643a"/>
+      <text class="name" x="765" y="425">NettyServer</text>
+      <text class="small" x="765" y="448">LengthFieldBasedFrameDecoder</text>
+      <text class="small" x="765" y="470">→ RpcMessageDecoder</text>
+      <circle cx="1003" cy="419" r="11" fill="#95643a"/><text class="index" x="1003" y="423">4</text>
+    </g>
+    <text class="label" x="886" y="508">Decoded request</text>
+    <text class="label reply-ink" x="405" y="511">Match by requestId</text>
+
+    <g id="client-response">
+      <rect class="box purple" x="232" y="531" width="314" height="61" rx="7"/>
+      <use xlink:href="#clock" x="249" y="548" color="#7b619e"/>
+      <text class="name" x="284" y="555">RequestFutureHolder</text>
+      <text class="detail" x="284" y="577">Completes the in-memory RPC future</text>
+    </g>
+
+    <g id="provider-handler">
+      <rect class="box teal" x="714" y="521" width="310" height="50" rx="7"/>
+      <use xlink:href="#code" x="730" y="534" color="#307c7b"/>
+      <text class="name" x="765" y="542">RpcServerHandler</text>
+      <text class="small" x="765" y="561">Deadline · optional auth · shutdown</text>
+      <circle cx="1003" cy="537" r="11" fill="#307474"/><text class="index" x="1003" y="541">5</text>
+    </g>
+    <text class="label purple-ink" x="886" y="591">Submit task</text>
+
+    <g id="business-executor">
+      <rect class="box teal" x="714" y="603" width="310" height="64" rx="7"/>
+      <use xlink:href="#chip" x="730" y="620" color="#307c7b"/>
+      <text class="name" x="765" y="627">Business executor</text>
+      <text class="detail" x="765" y="649">Lookup in LocalServiceRegistry</text>
+      <circle cx="1003" cy="619" r="11" fill="#307474"/><text class="index" x="1003" y="623">6</text>
+    </g>
+    <text class="label reply-ink" x="761" y="687">Result</text>
+    <text class="label" x="886" y="687">Method.invoke()</text>
+
+    <g id="service-implementation">
+      <rect class="box blue" x="714" y="702" width="310" height="49" rx="7"/>
+      <use xlink:href="#code" x="730" y="715" color="#416c9c"/>
+      <text class="name" x="765" y="723">HelloServiceImpl</text>
+      <text class="small" x="765" y="742">Returns a greeting</text>
+      <circle cx="1003" cy="718" r="11" fill="#416c9c"/><text class="index" x="1003" y="722">7</text>
+    </g>
+
+    <g id="wire-frame">
+      <rect x="232" y="616" width="427" height="135" rx="8" fill="#fff" stroke="#d7e1ea" stroke-width="1.3"/>
+      <text class="name" x="249" y="642">MiniRPC wire frame</text>
+      <path d="M250 665v-6h269v6" fill="none" stroke="#a58463" stroke-width="1"/>
+      <text class="small amber-ink" x="383" y="655" text-anchor="middle">9 B header</text>
+      <rect x="249" y="674" width="142" height="33" rx="3" fill="#f5e7d4" stroke="#d9bb9b"/>
+      <rect x="395" y="674" width="124" height="33" rx="3" fill="#faeddc" stroke="#d9bb9b"/>
+      <rect x="523" y="674" width="118" height="33" rx="3" fill="#edf3fc" stroke="#a5bedb"/>
+      <text class="mono" x="320" y="695" text-anchor="middle">Prefix · 5 B</text>
+      <text class="small" x="457" y="695" text-anchor="middle">BodyLength · 4 B</text>
+      <text class="mono" x="582" y="695" text-anchor="middle">Body · N B</text>
+      <text class="small" x="249" y="734">Frame length = 9 + N bytes · 8 MiB per frame</text>
+    </g>
+  </g>
+
+  <g id="discovery-topology">
+    <rect class="panel" x="1080" y="136" width="472" height="642" rx="12"/>
+    <text class="section" x="1104" y="173">Service discovery</text>
+    <text class="detail" x="1104" y="197">ZooKeeper mode · multiple providers</text>
+    <rect x="1141" y="326" width="350" height="117" rx="8" fill="#edf3fc" stroke="#c8d7e8" stroke-width="1.3"/>
+
+    <path class="flow" d="M1316 290V325"/>
+    <path class="registry" d="M1141 263H1118V548H1140" marker-end="url(#register)"/>
+    <path class="async" d="M1491 548H1519V263H1492"/>
+    <path class="registry" d="M1231 419V463H1400V419"/>
+    <path class="registry" d="M1316 463V517" marker-end="url(#register)"/>
+
+    <g id="consumer-discovery">
+      <rect class="box teal" x="1141" y="214" width="350" height="76" rx="7"/>
+      <use xlink:href="#search" x="1157" y="237" color="#307c7b"/>
+      <text class="name" x="1192" y="238">Consumer</text>
+      <text class="detail" x="1192" y="259">ServiceDiscovery · local endpoint cache</text>
+      <text class="small" x="1192" y="279">LoadBalancer selects one target per attempt</text>
+    </g>
+    <text class="label" x="1331" y="314">RPC / TCP</text>
+
+    <text class="layer blue-ink" x="1156" y="351">PROVIDER INSTANCES</text>
+    <g id="provider-a">
+      <rect class="box blue" x="1157" y="364" width="148" height="55" rx="6"/>
+      <use xlink:href="#server" x="1169" y="379" color="#416c9c"/>
+      <text class="name" x="1200" y="388">Provider A</text>
+      <text class="small" x="1200" y="407">NettyServer</text>
+    </g>
+    <g id="provider-b">
+      <rect class="box blue" x="1326" y="364" width="148" height="55" rx="6"/>
+      <use xlink:href="#server" x="1338" y="379" color="#416c9c"/>
+      <text class="name" x="1369" y="388">Provider B</text>
+      <text class="small" x="1369" y="407">NettyServer</text>
+    </g>
+    <text class="label amber-ink" x="1330" y="489">Register via Curator</text>
+    <text class="label amber-ink" transform="translate(1108 408) rotate(-90)" text-anchor="middle">Lookup / subscribe · Curator</text>
+    <text class="label purple-ink" transform="translate(1541 405) rotate(-90)" text-anchor="middle">Endpoint changes · async watch</text>
+
+    <g id="zookeeper">
+      <rect class="box amber" x="1141" y="518" width="350" height="200" rx="8"/>
+      <use xlink:href="#database" x="1158" y="538" color="#95643a"/>
+      <text class="name" x="1192" y="544">ZooKeeper</text>
+      <text class="detail" x="1192" y="566">Optional service registry</text>
+      <rect x="1154" y="581" width="324" height="123" rx="6" fill="#f3eff8" stroke="#d8cee7"/>
+      <text class="layer purple-ink" x="1169" y="604">REGISTRY DATA</text>
+      <text class="mono" x="1169" y="626">/mini-rpc/{serviceName}</text>
+      <text class="small" x="1169" y="644">Persistent service directory</text>
+      <text class="mono" x="1169" y="670">└─ {host}:{port}</text>
+      <text class="small" x="1169" y="689">Ephemeral endpoint record</text>
+    </g>
+    <text class="small" x="1141" y="748">Direct mode · connect to a configured host:port</text>
+  </g>
+
+  <g id="infrastructure">
+    <rect x="48" y="794" width="1504" height="58" rx="9" fill="#eaf0f5" stroke="#d5e0e9" stroke-width="1.3"/>
+    <text class="layer" x="70" y="827" fill="#405d74">INFRASTRUCTURE</text>
+    <path d="M216 806v34m561-34v34" stroke="#c7d5e2"/>
+    <use xlink:href="#chip" x="233" y="811" color="#576f88"/>
+    <text class="name" x="267" y="828">JDK 17+</text>
+    <text class="detail" x="357" y="828">Consumer and provider JVMs</text>
+    <use xlink:href="#network" x="803" y="811" color="#576f88"/>
+    <text class="name" x="837" y="828">TCP/IP network</text>
+    <text class="detail" x="1001" y="828">Direct TCP connections to provider endpoints</text>
+  </g>
+
+  <g id="legend">
+    <path class="flow" d="M49 875h35"/>
+    <text class="small" x="96" y="880">Synchronous call</text>
+    <path class="return" d="M235 875h35"/>
+    <text class="small" x="282" y="880">Response</text>
+    <path class="async" d="M394 875h35"/>
+    <text class="small" x="441" y="880">Async event or task hand-off</text>
+    <path class="registry" d="M687 875h35" marker-end="url(#register)"/>
+    <text class="small" x="734" y="880">Registry operation</text>
+  </g>
+</svg>
